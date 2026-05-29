@@ -6,6 +6,7 @@
   <img alt="Release" src="https://img.shields.io/badge/release-pre--1.0-111827?style=flat-square">
   <img alt="macOS 13+" src="https://img.shields.io/badge/macOS-13%2B-2563eb?style=flat-square">
   <img alt="Swift 6" src="https://img.shields.io/badge/Swift-6-f05138?style=flat-square">
+  <a href="docs/testing-coverage.md"><img alt="Coverage" src="https://img.shields.io/badge/coverage-99.03%25-16a34a?style=flat-square"></a>
   <img alt="Homebrew Cask" src="https://img.shields.io/badge/Homebrew-Cask-fbbf24?style=flat-square">
   <img alt="No telemetry" src="https://img.shields.io/badge/privacy-no%20telemetry-16a34a?style=flat-square">
   <a href="LICENSE"><img alt="Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-64748b?style=flat-square"></a>

@@ -6,7 +6,26 @@ The cask intentionally does not depend on `android-platform-tools`. Droid Scout 
 
 ## Release artifact
 
-Create the cask artifact from a clean release commit:
+Prepare a release locally with:
+
+```sh
+scripts/prepare-release.sh <version>
+```
+
+That command updates `packaging/Info.plist`, refreshes the README coverage badge,
+runs the CI-safe test set, builds the release zip, writes the checksum, and
+renders `.build/release/droid-scout.rb`.
+
+To also commit, create a stable SemVer tag, and push the tag that starts the
+GitHub release workflow:
+
+```sh
+scripts/prepare-release.sh <version> --commit --tag --push
+```
+
+Release tags must use the `vMAJOR.MINOR.PATCH` format, for example `v0.1.1`.
+
+Create only the cask artifact from a clean release commit with:
 
 ```sh
 scripts/package-cask-release.sh release
@@ -56,4 +75,19 @@ APP_STORE_CONNECT_API_KEY_ID
 APP_STORE_CONNECT_ISSUER_ID
 ```
 
-The cask can then be copied into a tap repository under `Casks/droid-scout.rb`, or used as the source for a pull request to `Homebrew/homebrew-cask` once the app meets Homebrew's acceptance requirements.
+To automatically open a pull request against a Homebrew tap, configure:
+
+```text
+Repository variable:
+HOMEBREW_TAP_REPOSITORY=samkit/homebrew-tap
+
+Repository secret:
+HOMEBREW_TAP_TOKEN=<GitHub token with write access to the tap repository>
+```
+
+When those are present, the release workflow copies the generated cask to
+`Casks/droid-scout.rb` in the tap repository, pushes a release branch, and opens
+a pull request.
+
+The generated cask can also be used as the source for a pull request to
+`Homebrew/homebrew-cask` once the app meets Homebrew's acceptance requirements.
