@@ -23,6 +23,7 @@ echo "Running default SwiftPM coverage pass..."
 env DEVELOPER_DIR="${DEVELOPER_DIR}" swift test \
     --scratch-path "${BASE_DIR}" \
     --disable-sandbox \
+    --no-parallel \
     --enable-code-coverage
 
 echo
@@ -31,6 +32,7 @@ DROID_SCOUT_MODEL_BOUNDARY_TESTS=1 \
 env DEVELOPER_DIR="${DEVELOPER_DIR}" swift test \
     --scratch-path "${MODEL_DIR}" \
     --disable-sandbox \
+    --no-parallel \
     --enable-code-coverage \
     --filter 'modelPanelHelpersLogsPackageChangesAndInjectedAppActionsUseRealBoundaries|modelInstallAndDeviceBranchesCoverFailuresAndEmulatorStart|defaultSystemActionsAndModelBoundariesAreInertButCallable'
 
@@ -40,6 +42,7 @@ DROID_SCOUT_UI_TESTS=1 \
 env DEVELOPER_DIR="${DEVELOPER_DIR}" swift test \
     --scratch-path "${UI_DIR}" \
     --disable-sandbox \
+    --no-parallel \
     --enable-code-coverage \
     --filter 'settingsAndInstallProgressRenderEveryPaneInMacWindows|popoverNativeControlsHandleAppKitEventsAndMenus|renderedMacControlsInvokeRealModelActionsWithInjectedSystemBoundaries'
 

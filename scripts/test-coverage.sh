@@ -21,6 +21,7 @@ find_test_binary() {
 env DEVELOPER_DIR="${DEVELOPER_DIR}" swift test \
     --scratch-path "${SCRATCH_DIR}" \
     --disable-sandbox \
+    --no-parallel \
     --enable-code-coverage
 
 CODECOV_DIR="$(find_codecov_dir "${SCRATCH_DIR}")"

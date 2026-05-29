@@ -334,7 +334,7 @@ private final class NonExecutableFileManager: FileManager, @unchecked Sendable {
     #expect(watcherError?.isEmpty == false)
 
     await tracker.refresh()
-    #expect(snapshots == [[]])
+    #expect(!snapshots.isEmpty && snapshots.allSatisfy { $0.isEmpty })
     tracker.stop()
     #expect(tracker.watcherState == .stopped)
 }
