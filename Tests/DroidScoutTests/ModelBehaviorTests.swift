@@ -214,7 +214,9 @@ import Testing
 
     model.restartADBServer()
     let restartCompleted = await waitUntil(timeout: 3) {
-        model.activities.contains { $0.title == "ADB server restarted" }
+        model.activities.contains { $0.title == "ADB server restarted" } &&
+            !model.isRestartingADBServer &&
+            model.adbStatus.isHealthy
     }
     #expect(restartCompleted)
 
