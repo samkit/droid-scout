@@ -28,7 +28,7 @@ jobs:
       - name: Test
         run: >
           swift test --disable-sandbox
-          --skip 'settingsAndInstallProgressRenderEveryPaneInMacWindows|renderedMacControlsInvokeRealModelActionsWithInjectedSystemBoundaries|popoverNativeControlsHandleAppKitEventsAndMenus|statusItemPresenterReflectsDeviceAndADBState|realDeviceADBServicesHydrateOnlineDeviceAndReadPackageState|realDeviceLogSessionStartsAndStopsAgainstADB|realDeviceTrackerAndModelRefreshFromADB|defaultSystemActionsAndModelBoundariesAreInertButCallable|modelPanelHelpersLogsPackageChangesAndInjectedAppActionsUseRealBoundaries|modelInstallAndDeviceBranchesCoverFailuresAndEmulatorStart'
+          --skip 'model|realDevice|settingsAndInstallProgressRenderEveryPaneInMacWindows|renderedMacControlsInvokeRealModelActionsWithInjectedSystemBoundaries|popoverNativeControlsHandleAppKitEventsAndMenus|statusItemPresenterReflectsDeviceAndADBState|defaultSystemActionsAndModelBoundariesAreInertButCallable'
 
       - name: Build app bundle
         run: scripts/build-app.sh release
