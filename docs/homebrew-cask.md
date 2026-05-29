@@ -16,11 +16,14 @@ That command updates `packaging/Info.plist`, refreshes the README coverage badge
 runs the CI-safe test set, builds the release zip, writes the checksum, and
 renders `.build/release/droid-scout.rb`.
 
-To also commit, tag, and push the tag that starts the GitHub release workflow:
+To also commit, create a stable SemVer tag, and push the tag that starts the
+GitHub release workflow:
 
 ```sh
 scripts/prepare-release.sh <version> --commit --tag --push
 ```
+
+Release tags must use the `vMAJOR.MINOR.PATCH` format, for example `v0.1.1`.
 
 Create only the cask artifact from a clean release commit with:
 

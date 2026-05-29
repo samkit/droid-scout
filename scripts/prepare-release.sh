@@ -7,6 +7,7 @@ Usage: scripts/prepare-release.sh <version> [--commit] [--tag] [--push]
 
 Updates Info.plist, refreshes the README coverage badge, runs CI tests,
 packages the release zip, and renders the Homebrew cask.
+Version must use stable SemVer, for example 1.2.3.
 
 Options:
   --commit   Commit the release prep changes.
@@ -31,6 +32,11 @@ fi
 VERSION="${1#v}"
 shift
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
+
+if [[ ! "${VERSION}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+  echo "Version must be stable SemVer, for example 1.2.3." >&2
+  exit 1
+fi
 
 DO_COMMIT=0
 DO_TAG=0
