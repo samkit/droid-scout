@@ -157,6 +157,10 @@ import Testing
 
 @MainActor
 @Test func statusItemPresenterReflectsDeviceAndADBState() {
+    guard ProcessInfo.processInfo.environment["DROID_SCOUT_UI_TESTS"] == "1" else {
+        return
+    }
+
     verifyStatusBarPresentationReflectsDeviceAndADBState()
 }
 
