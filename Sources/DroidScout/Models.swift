@@ -6,6 +6,11 @@ public enum AppConstants {
     static let applicationSupportFolder = "Droid Scout"
     static let logsFolder = "Droid Scout"
     static let githubReleasesURL = URL(string: "https://github.com/samkit/droid-scout/releases")!
+    public static let githubRepoURL = URL(string: "https://github.com/samkit/droid-scout")!
+
+    public static var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.4"
+    }
 
     static var applicationSupportURL: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!

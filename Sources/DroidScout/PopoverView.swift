@@ -216,7 +216,7 @@ public struct DroidScoutPopoverView: View {
                 showPairing: { isPairingPresented = true },
                 menuPresenter: footerMenuPresenter
             )
-                .frame(height: 84)
+                .frame(height: 112)
         }
         .animation(.easeInOut(duration: 0.18), value: isRecentActivityExpanded)
         .overlay(alignment: .top) {
@@ -287,6 +287,24 @@ struct FooterMenuListView: NSViewRepresentable {
             })
 
         case .bottom:
+            stackView.addArrangedSubview(row(title: "About", showsSubmenuIndicator: true) { sourceView in
+                let menu = NSMenu(title: "About")
+                
+                let versionItem = NSMenuItem(title: "Version \(AppConstants.appVersion)", action: nil, keyEquivalent: "")
+                versionItem.isEnabled = false
+                menu.addItem(versionItem)
+                
+                menu.addItem(NSMenuItem.separator())
+                
+                menu.addItem(ClosureMenuItem(
+                    title: "GitHub Repository",
+                    handler: {
+                        NSWorkspace.shared.open(AppConstants.githubRepoURL)
+                    }
+                ))
+                
+                menuPresenter(menu, sourceView)
+            })
             stackView.addArrangedSubview(row(title: "Check for Updates", action: model.checkForUpdates))
             stackView.addArrangedSubview(row(title: "Reveal Logs", action: model.revealLogs))
             stackView.addArrangedSubview(row(title: "Quit", action: model.quit))
