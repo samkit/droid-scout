@@ -26,20 +26,7 @@ jobs:
         run: swift --version
 
       - name: Test
-        run: |
-          tests=(
-            androidDeviceDerivedPropertiesCoverPhysicalAndEmulatorDevices
-            localStorePersistsCapsAndRedactsDiagnostics
-            adbDeviceParserExtractsStatesModelsAndTransportHints
-            artifactIndexerScansGradleOutputsWithRealFilesystemFixtures
-            processRunnerCapturesOutputExitCodesLaunchFailuresAndTimeouts
-            installCoordinatorRunsRealADBScriptAndReportsStateChanges
-            packageStatePollerUsesRealADBAndSkipsOfflineDevices
-          )
-
-          for test_name in "${tests[@]}"; do
-            swift test --disable-sandbox --filter "${test_name}"
-          done
+        run: scripts/run-ci-tests.sh
 
       - name: Build app bundle
         run: scripts/build-app.sh release
