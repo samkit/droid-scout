@@ -1,0 +1,99 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Test
+        run: swift test
+
+      - name: Import Developer ID certificate
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_APPLICATION_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.DEVELOPER_ID_KEYCHAIN_PASSWORD }}
+          CODESIGN_IDENTITY: ${{ secrets.DEVELOPER_ID_APPLICATION_IDENTITY }}
+        run: |
+          if [[ -z "${CERTIFICATE_BASE64}" ]]; then
+            echo "No Developer ID certificate configured; building an unsigned archive."
+            exit 0
+          fi
+          if [[ -z "${CERTIFICATE_PASSWORD}" || -z "${KEYCHAIN_PASSWORD}" || -z "${CODESIGN_IDENTITY}" ]]; then
+            echo "Developer ID certificate is configured, but its password, keychain password, or identity secret is missing." >&2
+            exit 1
+          fi
+
+          KEYCHAIN_PATH="${RUNNER_TEMP}/droid-scout-signing.keychain-db"
+          CERTIFICATE_PATH="${RUNNER_TEMP}/developer-id-application.p12"
+
+          echo "${CERTIFICATE_BASE64}" | base64 --decode > "${CERTIFICATE_PATH}"
+          security create-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
+          security set-keychain-settings -lut 21600 "${KEYCHAIN_PATH}"
+          security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
+          security import "${CERTIFICATE_PATH}" -P "${CERTIFICATE_PASSWORD}" -A -t cert -f pkcs12 -k "${KEYCHAIN_PATH}"
+          security list-keychains -d user -s "${KEYCHAIN_PATH}"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
+          echo "DROID_SCOUT_CODESIGN_IDENTITY=${CODESIGN_IDENTITY}" >> "${GITHUB_ENV}"
+
+      - name: Prepare App Store Connect API key
+        env:
+          API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
+          API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          if [[ -z "${API_KEY_BASE64}" ]]; then
+            echo "No App Store Connect API key configured; skipping notarization."
+            exit 0
+          fi
+          if [[ -z "${API_KEY_ID}" || -z "${API_ISSUER_ID}" ]]; then
+            echo "App Store Connect API key is configured, but key id or issuer id is missing." >&2
+            exit 1
+          fi
+
+          API_KEY_PATH="${RUNNER_TEMP}/AuthKey_${API_KEY_ID}.p8"
+          echo "${API_KEY_BASE64}" | base64 --decode > "${API_KEY_PATH}"
+          echo "DROID_SCOUT_NOTARY_KEY_PATH=${API_KEY_PATH}" >> "${GITHUB_ENV}"
+          echo "DROID_SCOUT_NOTARY_KEY_ID=${API_KEY_ID}" >> "${GITHUB_ENV}"
+          echo "DROID_SCOUT_NOTARY_ISSUER_ID=${API_ISSUER_ID}" >> "${GITHUB_ENV}"
+
+      - name: Package release
+        run: scripts/package-cask-release.sh release
+
+      - name: Render cask
+        run: scripts/render-homebrew-cask.sh
+
+      - name: Verify tag version
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          TAG_VERSION="${TAG_NAME#v}"
+          PLIST_VERSION="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" packaging/Info.plist)"
+          if [[ "${TAG_VERSION}" != "${PLIST_VERSION}" ]]; then
+            echo "Tag version ${TAG_VERSION} does not match Info.plist version ${PLIST_VERSION}." >&2
+            exit 1
+          fi
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG_NAME#v}"
+          gh release create "${TAG_NAME}" \
+            ".build/release/DroidScout-${VERSION}.zip" \
+            ".build/release/DroidScout-${VERSION}.zip.sha256" \
+            ".build/release/droid-scout.rb" \
+            --generate-notes \
+            --verify-tag

@@ -1,0 +1,36 @@
+# macOS
+.DS_Store
+._*
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Packages/
+Package.resolved
+
+# Xcode/user-local state
+DerivedData/
+*.xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+
+# Local release artifacts
+*.dSYM/
+*.app.zip
+*.zip.sha256
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+
+# Local environment and signing material
+.env
+.env.*
+*.cer
+*.key
+*.p12
+*.pem
+*.p8
+*.mobileprovision
