@@ -137,6 +137,26 @@ private enum RealDeviceTestError: LocalizedError {
     #expect(manager.sessions.contains(session))
 }
 
+@MainActor
+@Test func realDeviceV2Phase1ActionsAreValidAgainstADB() async throws {
+    guard let config = try realDeviceConfigIfEnabled() else { return }
+
+    let client = ADBClient(adbPath: config.adbPath)
+    
+    // Test Screenshot
+    let tempScreenshot = FileManager.default.temporaryDirectory.appendingPathComponent("temp_real_screenshot.png")
+    defer { try? FileManager.default.removeItem(at: tempScreenshot) }
+    let screenshotResult = await client.takeScreenshot(serial: config.serial, localURL: tempScreenshot)
+    #expect(screenshotResult.succeeded)
+    #expect(FileManager.default.fileExists(atPath: tempScreenshot.pathString))
+    
+    // Test Port Forwarding/Reverse
+    let forwardResult = await client.forwardPort(serial: config.serial, local: "tcp:18080", remote: "tcp:18080")
+    #expect(forwardResult.succeeded)
+    let removeForwardResult = await client.removeForwardPort(serial: config.serial, local: "tcp:18080")
+    #expect(removeForwardResult.succeeded)
+}
+
 private func realDeviceConfigIfEnabled() throws -> RealDeviceConfig? {
     let environment = ProcessInfo.processInfo.environment
     guard environment["DROID_SCOUT_REAL_DEVICE_TESTS"] == "1" else {

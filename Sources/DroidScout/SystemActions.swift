@@ -15,6 +15,9 @@ public struct DroidScoutSystemActions {
     public var notificationAuthorizationRequester: @MainActor () -> Void
     public var notificationDeliverer: @MainActor (_ title: String, _ body: String) -> Void
     public var updateOpener: @MainActor (URL) -> Void
+    public var saveURLProvider: @MainActor (_ defaultName: String, _ allowedExtension: String) -> URL?
+    public var packagePromptProvider: @MainActor (_ title: String, _ message: String) -> String?
+    public var portForwardPromptProvider: @MainActor () -> (type: String, local: String, remote: String)?
 
     public init(
         chooseADBURLProvider: @escaping @MainActor () -> URL? = { nil },
@@ -30,7 +33,10 @@ public struct DroidScoutSystemActions {
         logsRevealer: @escaping @MainActor (URL) -> Void = { _ in },
         notificationAuthorizationRequester: @escaping @MainActor () -> Void = {},
         notificationDeliverer: @escaping @MainActor (_ title: String, _ body: String) -> Void = { _, _ in },
-        updateOpener: @escaping @MainActor (URL) -> Void = { _ in }
+        updateOpener: @escaping @MainActor (URL) -> Void = { _ in },
+        saveURLProvider: @escaping @MainActor (_ defaultName: String, _ allowedExtension: String) -> URL? = { _, _ in nil },
+        packagePromptProvider: @escaping @MainActor (_ title: String, _ message: String) -> String? = { _, _ in nil },
+        portForwardPromptProvider: @escaping @MainActor () -> (type: String, local: String, remote: String)? = { nil }
     ) {
         self.chooseADBURLProvider = chooseADBURLProvider
         self.projectFolderURLsProvider = projectFolderURLsProvider
@@ -46,5 +52,8 @@ public struct DroidScoutSystemActions {
         self.notificationAuthorizationRequester = notificationAuthorizationRequester
         self.notificationDeliverer = notificationDeliverer
         self.updateOpener = updateOpener
+        self.saveURLProvider = saveURLProvider
+        self.packagePromptProvider = packagePromptProvider
+        self.portForwardPromptProvider = portForwardPromptProvider
     }
 }

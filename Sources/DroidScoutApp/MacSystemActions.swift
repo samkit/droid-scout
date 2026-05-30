@@ -20,7 +20,10 @@ enum MacSystemActions {
             logsRevealer: revealInFinder,
             notificationAuthorizationRequester: requestNotificationAuthorization,
             notificationDeliverer: deliverNotification,
-            updateOpener: { NSWorkspace.shared.open($0) }
+            updateOpener: { NSWorkspace.shared.open($0) },
+            saveURLProvider: chooseSaveURL,
+            packagePromptProvider: packagePrompt,
+            portForwardPromptProvider: portForwardPrompt
         )
     }
 
@@ -63,12 +66,36 @@ enum MacSystemActions {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
+    private static func openCommandInTerminal(title: String, scriptContent: String) {
+        let tempDir = FileManager.default.temporaryDirectory
+        let fileName = "droid-scout-\(UUID().uuidString.prefix(8)).command"
+        let fileURL = tempDir.appendingPathComponent(fileName)
+        
+        let fileContents = """
+        #!/bin/bash
+        # \(title)
+        \(scriptContent)
+        """
+        
+        do {
+            try fileContents.write(to: fileURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fileURL.path)
+            
+            NSWorkspace.shared.open(fileURL)
+            
+            DispatchQueue.global().asyncAfter(deadline: .now() + 5) {
+                try? FileManager.default.removeItem(at: fileURL)
+            }
+        } catch {
+            print("Failed to launch terminal session: \(error.localizedDescription)")
+        }
+    }
+
     private static func openShellInTerminal(command: String) {
-        let script = "tell application \"Terminal\" to do script \(command.debugDescription)"
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-e", script]
-        try? process.run()
+        openCommandInTerminal(
+            title: "Droid Scout Shell",
+            scriptContent: "exec \(command)"
+        )
     }
 
     private static func revealInFinder(_ url: URL) {
@@ -101,11 +128,10 @@ enum MacSystemActions {
         switch target {
         case .terminal:
             let command = "tail -f \(fileURL.path(percentEncoded: false).shellEscapedForDroidScout)"
-            let script = "tell application \"Terminal\" to do script \(command.debugDescription)"
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-            process.arguments = ["-e", script]
-            try? process.run()
+            openCommandInTerminal(
+                title: "Droid Scout Log Stream",
+                scriptContent: "exec \(command)"
+            )
         case .vscode:
             openWithApp("Visual Studio Code", fileURL: fileURL)
         case .zed:
@@ -137,6 +163,73 @@ enum MacSystemActions {
         let bundleID = Bundle.main.bundleIdentifier ?? "com.droidscout.app"
         let request = UNNotificationRequest(identifier: "\(bundleID).\(UUID().uuidString)", content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
+    }
+
+    private static func chooseSaveURL(defaultName: String, allowedExtension: String) -> URL? {
+        let panel = NSSavePanel()
+        panel.title = "Save As"
+        panel.nameFieldStringValue = defaultName
+        panel.allowedContentTypes = [allowedExtension == "png" ? UTType.png : UTType.mpeg4Movie]
+        return panel.runModal() == .OK ? panel.url : nil
+    }
+
+    private static func packagePrompt(title: String, message: String) -> String? {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+        
+        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        textField.placeholderString = "com.example.app"
+        alert.accessoryView = textField
+        
+        return alert.runModal() == .alertFirstButtonReturn ? textField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) : nil
+    }
+
+    private static func portForwardPrompt() -> (type: String, local: String, remote: String)? {
+        let alert = NSAlert()
+        alert.messageText = "Configure Port Forwarding/Reverse"
+        alert.informativeText = "Specify the type and the local/remote port specifications."
+        alert.addButton(withTitle: "Apply")
+        alert.addButton(withTitle: "Cancel")
+        
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 280, height: 100))
+        
+        let typeLabel = NSTextField(labelWithString: "Type:")
+        typeLabel.frame = NSRect(x: 0, y: 72, width: 60, height: 20)
+        let typeSelect = NSSegmentedControl(labels: ["Forward", "Reverse"], trackingMode: .selectOne, target: nil, action: nil)
+        typeSelect.frame = NSRect(x: 70, y: 70, width: 200, height: 24)
+        typeSelect.setSelected(true, forSegment: 0)
+        
+        let localLabel = NSTextField(labelWithString: "Local:")
+        localLabel.frame = NSRect(x: 0, y: 38, width: 60, height: 20)
+        let localField = NSTextField(frame: NSRect(x: 70, y: 36, width: 200, height: 22))
+        localField.placeholderString = "tcp:8080"
+        
+        let remoteLabel = NSTextField(labelWithString: "Remote:")
+        remoteLabel.frame = NSRect(x: 0, y: 4, width: 60, height: 20)
+        let remoteField = NSTextField(frame: NSRect(x: 70, y: 2, width: 200, height: 22))
+        remoteField.placeholderString = "tcp:8080"
+        
+        container.addSubview(typeLabel)
+        container.addSubview(typeSelect)
+        container.addSubview(localLabel)
+        container.addSubview(localField)
+        container.addSubview(remoteLabel)
+        container.addSubview(remoteField)
+        
+        alert.accessoryView = container
+        
+        if alert.runModal() == .alertFirstButtonReturn {
+            let type = typeSelect.selectedSegment == 0 ? "forward" : "reverse"
+            let local = localField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            let remote = remoteField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !local.isEmpty && !remote.isEmpty {
+                return (type, local, remote)
+            }
+        }
+        return nil
     }
 }
 

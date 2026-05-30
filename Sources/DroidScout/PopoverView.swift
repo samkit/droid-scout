@@ -193,7 +193,7 @@ public struct DroidScoutPopoverView: View {
                 }
 
                 GridRow {
-                    Button(action: model.startLogsForSelected) {
+                    Button(action: { model.startLogsForSelected() }) {
                         Label("Start Logs", systemImage: "terminal")
                             .frame(maxWidth: .infinity)
                     }
@@ -877,9 +877,52 @@ struct DeviceActionsMenuButton: NSViewRepresentable {
             }
             menu.addItem(menuItem("Install APK...", action: #selector(installAPK), enabled: device.state == .online))
             menu.addItem(NSMenuItem.separator())
-            menu.addItem(menuItem("Open Log Stream", action: #selector(openLogStream), enabled: device.state == .online))
+            
+            menu.addItem(menuItem("Take Screenshot", action: #selector(takeScreenshot), enabled: device.state == .online))
+            
+            let isRecording = model.activeScreenRecordings[device.serial] != nil
+            let recordTitle = isRecording ? "Stop Screen Recording" : "Start Screen Recording"
+            menu.addItem(menuItem(recordTitle, action: #selector(toggleScreenRecording), enabled: device.state == .online))
+            
+            menu.addItem(menuItem("Screen Mirroring (scrcpy)", action: #selector(startMirroring), enabled: device.state == .online))
+            menu.addItem(NSMenuItem.separator())
+            
+            let logStreamItem = NSMenuItem(title: "Open Log Stream", action: nil, keyEquivalent: "")
+            logStreamItem.isEnabled = device.state == .online
+            let logStreamMenu = NSMenu(title: "Open Log Stream")
+            logStreamMenu.addItem(menuItem("Terminal", action: #selector(openLogStreamTerminal)))
+            if NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.microsoft.VSCode") != nil {
+                logStreamMenu.addItem(menuItem("VS Code", action: #selector(openLogStreamVSCode)))
+            }
+            if NSWorkspace.shared.urlForApplication(withBundleIdentifier: "dev.zed.Zed") != nil {
+                logStreamMenu.addItem(menuItem("Zed", action: #selector(openLogStreamZed)))
+            }
+            logStreamMenu.addItem(menuItem("Default App", action: #selector(openLogStreamDefault)))
+            logStreamItem.submenu = logStreamMenu
+            menu.addItem(logStreamItem)
             menu.addItem(menuItem("Clear Logcat Buffer", action: #selector(clearLogcatBuffer), enabled: device.state == .online))
             menu.addItem(menuItem("Open Shell", action: #selector(openShell), enabled: device.state == .online))
+            menu.addItem(NSMenuItem.separator())
+            
+            menu.addItem(menuItem("Port Forwarding...", action: #selector(configurePortForwarding), enabled: device.state == .online))
+            
+            let appControlItem = NSMenuItem(title: "App Control", action: nil, keyEquivalent: "")
+            appControlItem.isEnabled = device.state == .online
+            let appControlMenu = NSMenu(title: "App Control")
+            appControlMenu.addItem(menuItem("Clear App Data...", action: #selector(clearAppData)))
+            appControlMenu.addItem(menuItem("Uninstall App...", action: #selector(uninstallApp)))
+            appControlItem.submenu = appControlMenu
+            menu.addItem(appControlItem)
+            
+            let rebootItem = NSMenuItem(title: "Reboot Device", action: nil, keyEquivalent: "")
+            rebootItem.isEnabled = device.state == .online
+            let rebootMenu = NSMenu(title: "Reboot Device")
+            rebootMenu.addItem(menuItem("System", action: #selector(rebootSystem)))
+            rebootMenu.addItem(menuItem("Bootloader", action: #selector(rebootBootloader)))
+            rebootMenu.addItem(menuItem("Recovery", action: #selector(rebootRecovery)))
+            rebootItem.submenu = rebootMenu
+            menu.addItem(rebootItem)
+            
             menu.addItem(NSMenuItem.separator())
             menu.addItem(menuItem("Remove from List", action: #selector(hideFromList)))
             return menu
@@ -902,6 +945,26 @@ struct DeviceActionsMenuButton: NSViewRepresentable {
             model.startLogsForSelected()
         }
 
+        @objc func openLogStreamTerminal() {
+            model.selectedSerials = [device.serial]
+            model.startLogsForSelected(target: .terminal)
+        }
+
+        @objc func openLogStreamVSCode() {
+            model.selectedSerials = [device.serial]
+            model.startLogsForSelected(target: .vscode)
+        }
+
+        @objc func openLogStreamZed() {
+            model.selectedSerials = [device.serial]
+            model.startLogsForSelected(target: .zed)
+        }
+
+        @objc func openLogStreamDefault() {
+            model.selectedSerials = [device.serial]
+            model.startLogsForSelected(target: .defaultApp)
+        }
+
         @objc func clearLogcatBuffer() {
             model.selectedSerials = [device.serial]
             model.clearLogcatForSelected()
@@ -913,6 +976,46 @@ struct DeviceActionsMenuButton: NSViewRepresentable {
 
         @objc func hideFromList() {
             model.hideDevice(device)
+        }
+
+        @objc func takeScreenshot() {
+            model.takeScreenshot(device: device)
+        }
+
+        @objc func toggleScreenRecording() {
+            if model.activeScreenRecordings[device.serial] != nil {
+                model.stopScreenRecording(device: device)
+            } else {
+                model.startScreenRecording(device: device)
+            }
+        }
+
+        @objc func startMirroring() {
+            model.startMirroring(device: device)
+        }
+
+        @objc func clearAppData() {
+            model.promptAndClearAppData(device: device)
+        }
+
+        @objc func uninstallApp() {
+            model.promptAndUninstallApp(device: device)
+        }
+
+        @objc func configurePortForwarding() {
+            model.configurePortForwarding(device: device)
+        }
+
+        @objc func rebootSystem() {
+            model.rebootDevice(device: device, mode: nil)
+        }
+
+        @objc func rebootBootloader() {
+            model.rebootDevice(device: device, mode: "bootloader")
+        }
+
+        @objc func rebootRecovery() {
+            model.rebootDevice(device: device, mode: "recovery")
         }
 
         func menuItem(_ title: String, action: Selector, enabled: Bool = true) -> NSMenuItem {

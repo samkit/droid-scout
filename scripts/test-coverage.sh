@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 THRESHOLD="${1:-98}"
 DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
-IGNORE_REGEX='.build|Tests|PopoverView.swift|SettingsView.swift|StatusBarController.swift|main.swift|DroidScoutModel.swift|ActionServices.swift|ADBServices.swift|SystemActions.swift'
+IGNORE_REGEX='.build|Tests|PopoverView.swift|SettingsView.swift|StatusBarController.swift|main.swift|DroidScoutModel.swift|ActionServices.swift|ADBServices.swift|SystemActions.swift|ScreenRecordHUD.swift'
 
 cd "${ROOT_DIR}"
 mkdir -p .build

@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import AppKit
 
 @MainActor
 public final class DroidScoutModel: ObservableObject {
@@ -10,6 +11,7 @@ public final class DroidScoutModel: ObservableObject {
     @Published var artifacts: [ArtifactRecord]
     @Published public var installResults: [InstallResult] = []
     @Published var activeLogSessions: [LogSessionManager.Session] = []
+    @Published var activeScreenRecordings: [String: ScreenRecordManager.Session] = [:]
     @Published var restartAvailable = false
     @Published var isRefreshingDevices = false
     @Published var isRestartingADBServer = false
@@ -36,6 +38,10 @@ public final class DroidScoutModel: ObservableObject {
     private let appBundleURLProvider: @MainActor () -> URL?
     private let restartLauncher: @MainActor (URL) -> Void
     private let appTerminator: @MainActor () -> Void
+    private let saveURLProvider: @MainActor (_ defaultName: String, _ allowedExtension: String) -> URL?
+    private let packagePromptProvider: @MainActor (_ title: String, _ message: String) -> String?
+    private let portForwardPromptProvider: @MainActor () -> (type: String, local: String, remote: String)?
+    private let screenRecordManager = ScreenRecordManager()
     private let deployCorrelator = DeployCorrelator()
 
     private var adbClient: ADBClient?
@@ -72,7 +78,10 @@ public final class DroidScoutModel: ObservableObject {
             diagnosticsRevealer: systemActions.diagnosticsRevealer,
             appBundleURLProvider: systemActions.appBundleURLProvider,
             restartLauncher: systemActions.restartLauncher,
-            appTerminator: systemActions.appTerminator
+            appTerminator: systemActions.appTerminator,
+            saveURLProvider: systemActions.saveURLProvider,
+            packagePromptProvider: systemActions.packagePromptProvider,
+            portForwardPromptProvider: systemActions.portForwardPromptProvider
         )
     }
 
@@ -89,7 +98,10 @@ public final class DroidScoutModel: ObservableObject {
         diagnosticsRevealer: @escaping @MainActor (URL) -> Void = { _ in },
         appBundleURLProvider: @escaping @MainActor () -> URL? = { nil },
         restartLauncher: @escaping @MainActor (URL) -> Void = { _ in },
-        appTerminator: @escaping @MainActor () -> Void = {}
+        appTerminator: @escaping @MainActor () -> Void = {},
+        saveURLProvider: @escaping @MainActor (_ defaultName: String, _ allowedExtension: String) -> URL? = { _, _ in nil },
+        packagePromptProvider: @escaping @MainActor (_ title: String, _ message: String) -> String? = { _, _ in nil },
+        portForwardPromptProvider: @escaping @MainActor () -> (type: String, local: String, remote: String)? = { nil }
     ) {
         self.store = store
         self.notificationManager = notificationManager
@@ -104,6 +116,9 @@ public final class DroidScoutModel: ObservableObject {
         self.appBundleURLProvider = appBundleURLProvider
         self.restartLauncher = restartLauncher
         self.appTerminator = appTerminator
+        self.saveURLProvider = saveURLProvider
+        self.packagePromptProvider = packagePromptProvider
+        self.portForwardPromptProvider = portForwardPromptProvider
         launchExecutableModificationDate = Self.executableModificationDate()
         var loadedSettings = store.loadSettings()
         if loadedSettings.logRetentionDays == 14 {
@@ -370,11 +385,12 @@ public final class DroidScoutModel: ObservableObject {
         Task { await install(artifact: artifact, devices: targets) }
     }
 
-    func startLogsForSelected() {
+    func startLogsForSelected(target: LogTarget? = nil) {
         guard case let .healthy(path, _) = adbStatus else { return }
+        let chosenTarget = target ?? settings.logTarget
         for device in selectedOnlineDevices {
             do {
-                let session = try logSessionManager.startLogStream(device: device, adbPath: path, target: settings.logTarget)
+                let session = try logSessionManager.startLogStream(device: device, adbPath: path, target: chosenTarget)
                 activeLogSessions = logSessionManager.sessions
                 recordActivity(
                     kind: .log,
@@ -383,6 +399,7 @@ public final class DroidScoutModel: ObservableObject {
                     deviceSerials: [device.serial],
                     success: true
                 )
+                deliverDirectNotification(title: "Log Stream Started", body: "Streaming \(device.friendlyName) logs to \(chosenTarget.displayName).")
             } catch {
                 recordActivity(
                     kind: .log,
@@ -391,6 +408,7 @@ public final class DroidScoutModel: ObservableObject {
                     deviceSerials: [device.serial],
                     success: false
                 )
+                deliverDirectNotification(title: "Log Stream Failed", body: error.localizedDescription)
             }
         }
     }
@@ -398,19 +416,26 @@ public final class DroidScoutModel: ObservableObject {
     func stopLogSession(_ session: LogSessionManager.Session) {
         logSessionManager.stop(session)
         activeLogSessions = logSessionManager.sessions
+        deliverDirectNotification(title: "Log Stream Stopped", body: "Closed log session for device.")
     }
 
     func clearLogcatForSelected() {
         guard let adbClient else { return }
         for device in selectedOnlineDevices {
+            deliverDirectNotification(title: "Clearing Logcat Buffer", body: "Sending logcat -c to \(device.friendlyName)...")
             Task {
                 let result = await adbClient.run(serial: device.serial, arguments: ["logcat", "-c"], timeout: 15)
+                let succeeded = result.succeeded
                 recordActivity(
                     kind: .log,
-                    title: result.succeeded ? "Logcat buffer cleared" : "Could not clear logcat buffer",
+                    title: succeeded ? "Logcat buffer cleared" : "Could not clear logcat buffer",
                     detail: device.friendlyName,
                     deviceSerials: [device.serial],
-                    success: result.succeeded
+                    success: succeeded
+                )
+                deliverDirectNotification(
+                    title: succeeded ? "Logcat Buffer Cleared" : "Clear Logcat Failed",
+                    body: succeeded ? "Successfully cleared \(device.friendlyName) buffer." : (result.stderr.nilIfBlank ?? "An unknown error occurred.")
                 )
             }
         }
@@ -418,6 +443,7 @@ public final class DroidScoutModel: ObservableObject {
 
     func openShell(device: AndroidDevice) {
         guard let command = shellCommand(device: device) else { return }
+        deliverDirectNotification(title: "Opening Shell", body: "Launching terminal shell session for \(device.friendlyName)...")
         shellOpener(command)
     }
 
@@ -857,6 +883,294 @@ public final class DroidScoutModel: ObservableObject {
         case .offline: 2
         case .stopped: 3
         case .unknown: 4
+        }
+    }
+
+    private func deliverDirectNotification(title: String, body: String) {
+        notificationManager.notify(kind: .device, title: title, body: body, mode: .full, key: "direct|\(UUID().uuidString)")
+    }
+
+    public func takeScreenshot(device: AndroidDevice) {
+        guard let adbClient else { return }
+        let dateStr = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let cleanName = device.friendlyName.replacingOccurrences(of: " ", with: "-")
+        let defaultFilename = "Screenshot-\(cleanName)-\(dateStr).png"
+        
+        guard let saveURL = saveURLProvider(defaultFilename, "png") else {
+            recordActivity(kind: .device, title: "Screenshot cancelled", detail: device.friendlyName, deviceSerials: [device.serial], success: nil)
+            return
+        }
+        
+        deliverDirectNotification(title: "Capturing Screenshot", body: "Starting screen capture on \(device.friendlyName)...")
+        recordActivity(kind: .device, title: "Taking screenshot", detail: device.friendlyName, deviceSerials: [device.serial], success: nil)
+        Task {
+            let result = await adbClient.takeScreenshot(serial: device.serial, localURL: saveURL)
+            if result.succeeded {
+                recordActivity(kind: .device, title: "Screenshot saved", detail: saveURL.lastPathComponent, deviceSerials: [device.serial], success: true)
+                deliverDirectNotification(title: "Screenshot Saved", body: "Saved to: \(saveURL.lastPathComponent)")
+            } else {
+                recordActivity(kind: .device, title: "Screenshot failed", detail: result.stderr, deviceSerials: [device.serial], success: false)
+                deliverDirectNotification(title: "Screenshot Failed", body: result.stderr.nilIfBlank ?? "An unknown error occurred.")
+            }
+        }
+    }
+
+    public func startScreenRecording(device: AndroidDevice) {
+        guard case let .healthy(adbPath, _) = adbStatus else { return }
+        let dateStr = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let cleanName = device.friendlyName.replacingOccurrences(of: " ", with: "-")
+        let defaultFilename = "Recording-\(cleanName)-\(dateStr).mp4"
+        
+        guard let saveURL = saveURLProvider(defaultFilename, "mp4") else { return }
+        do {
+            let session = try screenRecordManager.startRecording(device: device, adbPath: adbPath, localURL: saveURL)
+            activeScreenRecordings[device.serial] = session
+            deliverDirectNotification(title: "Screen Recording", body: "Started recording screen on \(device.friendlyName)...")
+            recordActivity(kind: .device, title: "Screen recording started", detail: device.friendlyName, deviceSerials: [device.serial], success: true)
+            
+            // Show HUD panel
+            ScreenRecordHUDController.shared.show(device: device, model: self)
+        } catch {
+            recordActivity(kind: .device, title: "Screen recording failed to start", detail: error.localizedDescription, deviceSerials: [device.serial], success: false)
+            deliverDirectNotification(title: "Recording Failed to Start", body: error.localizedDescription)
+        }
+    }
+
+    public func stopScreenRecording(device: AndroidDevice) {
+        guard case let .healthy(adbPath, _) = adbStatus,
+              let session = activeScreenRecordings[device.serial] else { return }
+        
+        ScreenRecordHUDController.shared.dismiss()
+        deliverDirectNotification(title: "Saving Recording", body: "Finalizing and pulling video from \(device.friendlyName)...")
+        recordActivity(kind: .device, title: "Stopping screen recording...", detail: device.friendlyName, deviceSerials: [device.serial], success: nil)
+        Task {
+            let result = await screenRecordManager.stop(session, adbPath: adbPath)
+            activeScreenRecordings[device.serial] = nil
+            if result.succeeded {
+                recordActivity(kind: .device, title: "Screen recording saved", detail: session.localURL.lastPathComponent, deviceSerials: [device.serial], success: true)
+                deliverDirectNotification(title: "Recording Saved", body: "Saved to: \(session.localURL.lastPathComponent)")
+            } else {
+                recordActivity(kind: .device, title: "Screen recording failed to save", detail: result.stderr, deviceSerials: [device.serial], success: false)
+                deliverDirectNotification(title: "Recording Failed to Save", body: result.stderr.nilIfBlank ?? "An unknown error occurred.")
+            }
+        }
+    }
+
+    public func discardScreenRecording(device: AndroidDevice) {
+        guard case let .healthy(adbPath, _) = adbStatus,
+              let session = activeScreenRecordings[device.serial] else { return }
+        
+        ScreenRecordHUDController.shared.dismiss()
+        deliverDirectNotification(title: "Discarding Recording", body: "Discarded screen recording for \(device.friendlyName).")
+        recordActivity(kind: .device, title: "Discarded screen recording", detail: device.friendlyName, deviceSerials: [device.serial], success: true)
+        
+        activeScreenRecordings[device.serial] = nil
+        Task {
+            await screenRecordManager.discard(session, adbPath: adbPath)
+        }
+    }
+
+    public func clearAppData(device: AndroidDevice, packageId: String) {
+        guard let adbClient else { return }
+        deliverDirectNotification(title: "Clearing App Data", body: "Clearing \(packageId) on \(device.friendlyName)...")
+        recordActivity(kind: .device, title: "Clearing app data", detail: "\(packageId) on \(device.friendlyName)", deviceSerials: [device.serial], success: nil)
+        Task {
+            let result = await adbClient.clearAppData(serial: device.serial, packageId: packageId)
+            let succeeded = result.succeeded
+            recordActivity(
+                kind: .device,
+                title: succeeded ? "App data cleared" : "App data clear failed",
+                detail: succeeded ? "\(packageId) on \(device.friendlyName)" : result.stderr,
+                deviceSerials: [device.serial],
+                success: succeeded
+            )
+            deliverDirectNotification(
+                title: succeeded ? "App Data Cleared" : "Clear Data Failed",
+                body: succeeded ? "Successfully cleared \(packageId) data." : (result.stderr.nilIfBlank ?? "An unknown error occurred.")
+            )
+        }
+    }
+
+    public func promptAndClearAppData(device: AndroidDevice) {
+        guard let packageId = packagePromptProvider("Clear App Data", "Enter the package name of the app to clear:") else { return }
+        clearAppData(device: device, packageId: packageId)
+    }
+
+    public func uninstallApp(device: AndroidDevice, packageId: String) {
+        guard let adbClient else { return }
+        deliverDirectNotification(title: "Uninstalling App", body: "Removing \(packageId) from \(device.friendlyName)...")
+        recordActivity(kind: .device, title: "Uninstalling app", detail: "\(packageId) from \(device.friendlyName)", deviceSerials: [device.serial], success: nil)
+        Task {
+            let result = await adbClient.uninstallApp(serial: device.serial, packageId: packageId)
+            let succeeded = result.succeeded
+            recordActivity(
+                kind: .device,
+                title: succeeded ? "App uninstalled" : "App uninstall failed",
+                detail: succeeded ? "\(packageId) from \(device.friendlyName)" : result.stderr,
+                deviceSerials: [device.serial],
+                success: succeeded
+            )
+            deliverDirectNotification(
+                title: succeeded ? "App Uninstalled" : "Uninstall Failed",
+                body: succeeded ? "Successfully uninstalled \(packageId)." : (result.stderr.nilIfBlank ?? "An unknown error occurred.")
+            )
+        }
+    }
+
+    public func promptAndUninstallApp(device: AndroidDevice) {
+        guard let packageId = packagePromptProvider("Uninstall App", "Enter the package name of the app to uninstall:") else { return }
+        uninstallApp(device: device, packageId: packageId)
+    }
+
+    public func rebootDevice(device: AndroidDevice, mode: String?) {
+        guard let adbClient else { return }
+        let displayMode = mode ?? "system"
+        deliverDirectNotification(title: "Rebooting Device", body: "Rebooting \(device.friendlyName) (\(displayMode))...")
+        recordActivity(kind: .device, title: "Rebooting device (\(displayMode))", detail: device.friendlyName, deviceSerials: [device.serial], success: nil)
+        Task {
+            let result = await adbClient.reboot(serial: device.serial, mode: mode)
+            let succeeded = result.succeeded || result.stderr.contains("closed") || result.stderr.contains("transport")
+            if succeeded {
+                deliverDirectNotification(title: "Device Rebooting", body: "\(device.friendlyName) is rebooting into \(displayMode).")
+            } else {
+                recordActivity(kind: .device, title: "Reboot failed", detail: result.stderr, deviceSerials: [device.serial], success: false)
+                deliverDirectNotification(title: "Reboot Failed", body: result.stderr.nilIfBlank ?? "An unknown error occurred.")
+            }
+        }
+    }
+
+    public func configurePortForwarding(device: AndroidDevice) {
+        guard let adbClient else { return }
+        guard let config = portForwardPromptProvider() else { return }
+        
+        deliverDirectNotification(title: "Applying Port Rule", body: "Configuring \(config.type) on \(device.friendlyName)...")
+        recordActivity(kind: .device, title: "Configuring port rule (\(config.type))", detail: "\(config.local) -> \(config.remote) on \(device.friendlyName)", deviceSerials: [device.serial], success: nil)
+        Task {
+            let result: CommandResult
+            if config.type == "forward" {
+                result = await adbClient.forwardPort(serial: device.serial, local: config.local, remote: config.remote)
+            } else {
+                result = await adbClient.reversePort(serial: device.serial, remote: config.local, local: config.remote)
+            }
+            
+            let succeeded = result.succeeded
+            recordActivity(
+                kind: .device,
+                title: succeeded ? "Port rule configured" : "Port configuration failed",
+                detail: succeeded ? "\(config.type.capitalized): \(config.local) -> \(config.remote)" : result.stderr,
+                deviceSerials: [device.serial],
+                success: succeeded
+            )
+            deliverDirectNotification(
+                title: succeeded ? "Port Forwarding Configured" : "Forwarding Failed",
+                body: succeeded ? "Successfully applied rule: \(config.local) -> \(config.remote)" : (result.stderr.nilIfBlank ?? "An unknown error occurred.")
+            )
+        }
+    }
+
+    private var isTestingEnvironment: Bool {
+        NSClassFromString("XCTest") != nil || 
+        ProcessInfo.processInfo.environment["SWIFT_TESTING_ACTIVE"] != nil || 
+        ProcessInfo.processInfo.processName.lowercased().contains("test") ||
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+
+    public func startMirroring(device: AndroidDevice) {
+        guard let scrcpyPath = ScrcpyLocator.locate() else {
+            recordActivity(kind: .adb, title: "scrcpy not found", detail: "Install scrcpy via Homebrew to use screen mirroring: brew install scrcpy", deviceSerials: [device.serial], success: false)
+            
+            if !isTestingEnvironment {
+                NSApp.activate(ignoringOtherApps: true)
+                let alert = NSAlert()
+                alert.messageText = "scrcpy Not Found"
+                alert.informativeText = "Droid Scout requires the 'scrcpy' utility to mirror your device screen, but it was not found on your system.\n\nNext Steps:\nTo install screen mirroring capabilities, open Terminal and run:\n    brew install scrcpy\n\nWould you like to copy this command to your clipboard now?"
+                alert.addButton(withTitle: "Copy Command")
+                alert.addButton(withTitle: "Cancel")
+                alert.alertStyle = .warning
+                
+                if alert.runModal() == .alertFirstButtonReturn {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString("brew install scrcpy", forType: .string)
+                    deliverDirectNotification(title: "Command Copied", body: "'brew install scrcpy' copied to clipboard.")
+                }
+            } else {
+                deliverDirectNotification(title: "Mirroring Failed", body: "scrcpy was not found. Install it with: brew install scrcpy")
+            }
+            return
+        }
+        
+        deliverDirectNotification(title: "Launching Mirroring", body: "Opening scrcpy session for \(device.friendlyName)...")
+        recordActivity(kind: .device, title: "Starting screen mirroring", detail: "\(device.friendlyName) via scrcpy", deviceSerials: [device.serial], success: true)
+        do {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: scrcpyPath)
+            process.arguments = ["-s", device.serial]
+            
+            var env = ProcessInfo.processInfo.environment
+            let pathValue = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+            if case let .healthy(adbPath, _) = adbStatus {
+                env["ADB"] = adbPath
+                let adbDir = URL(fileURLWithPath: adbPath).deletingLastPathComponent().path
+                env["PATH"] = "\(adbDir):\(pathValue)"
+            }
+            process.environment = env
+            
+            let errorPipe = Pipe()
+            process.standardError = errorPipe
+            process.standardOutput = FileHandle.nullDevice
+            try process.run()
+            
+            let serial = device.serial
+            Task {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                if !process.isRunning {
+                    let exitCode = process.terminationStatus
+                    if exitCode != 0 {
+                        let data = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                        let errorText = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        let detail = errorText.isEmpty ? "scrcpy exited with code \(exitCode)" : errorText
+                        
+                        await MainActor.run {
+                            self.recordActivity(
+                                kind: .device,
+                                title: "Mirroring failed",
+                                detail: detail,
+                                deviceSerials: [serial],
+                                success: false
+                            )
+                            
+                            if !self.isTestingEnvironment {
+                                NSApp.activate(ignoringOtherApps: true)
+                                let failAlert = NSAlert()
+                                failAlert.messageText = "Screen Mirroring Failed"
+                                failAlert.informativeText = "Mirroring session ended unexpectedly.\n\nError Diagnostics:\n\(detail)\n\nSuggested Next Steps:\n1. Ensure your Android device is unlocked and authorized for USB debugging.\n2. Verify that your USB/Wi-Fi connection is stable.\n3. Make sure no other mirroring tool or custom ADB session is actively blocking the device."
+                                failAlert.addButton(withTitle: "OK")
+                                failAlert.alertStyle = .critical
+                                failAlert.runModal()
+                            } else {
+                                self.deliverDirectNotification(
+                                    title: "Mirroring Failed",
+                                    body: "Mirroring session ended unexpectedly: \(detail)"
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        } catch {
+            recordActivity(kind: .device, title: "Mirroring failed to launch", detail: error.localizedDescription, deviceSerials: [device.serial], success: false)
+            
+            if !isTestingEnvironment {
+                NSApp.activate(ignoringOtherApps: true)
+                let failAlert = NSAlert()
+                failAlert.messageText = "Mirroring Launch Failed"
+                failAlert.informativeText = "Failed to run the scrcpy process.\n\nError:\n\(error.localizedDescription)\n\nNext Steps:\nEnsure scrcpy has permission to execute on your Mac and standard system subprocesses are allowed."
+                failAlert.addButton(withTitle: "OK")
+                failAlert.alertStyle = .critical
+                failAlert.runModal()
+            } else {
+                deliverDirectNotification(title: "Mirroring Launch Failed", body: error.localizedDescription)
+            }
         }
     }
 }

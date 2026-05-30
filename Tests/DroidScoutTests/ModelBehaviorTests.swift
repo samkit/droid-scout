@@ -770,6 +770,151 @@ import Testing
 }
 
 @MainActor
+@Test func modelV2Phase1ActionsAreCalledAndLoggedThroughFakeADB() async throws {
+    let root = try TestSupport.temporaryDirectory()
+    defer { TestSupport.cleanup(root) }
+    
+    let support = root.appendingPathComponent("Support", isDirectory: true)
+    let logs = root.appendingPathComponent("Logs", isDirectory: true)
+    let store = LocalStore(supportURL: support, logsURL: logs)
+    
+    var savedScreenshots: [URL] = []
+    var savedRecordings: [URL] = []
+    var promptedTitles: [String] = []
+    var portForwardPromptCalled = false
+    
+    let actions = DroidScoutSystemActions(
+        saveURLProvider: { name, ext in
+            if ext == "png" {
+                let url = root.appendingPathComponent(name)
+                savedScreenshots.append(url)
+                return url
+            } else {
+                let url = root.appendingPathComponent(name)
+                savedRecordings.append(url)
+                return url
+            }
+        },
+        packagePromptProvider: { title, msg in
+            promptedTitles.append(title)
+            return "com.test.pkg"
+        },
+        portForwardPromptProvider: {
+            portForwardPromptCalled = true
+            return ("forward", "tcp:8080", "tcp:8080")
+        }
+    )
+    
+    let model = DroidScoutModel(store: store, systemActions: actions)
+    model.settings.notificationMode = .off
+    
+    let adb = root.appendingPathComponent("adb")
+    let adbCalls = root.appendingPathComponent("adb-calls.txt")
+    try TestSupport.executableScript(adb, body: """
+    echo "$@" >> "\(adbCalls.pathString)"
+    case "$1" in
+      version)
+        echo "Android Debug Bridge version 35.0.2"
+        exit 0
+        ;;
+      track-devices)
+        sleep 20
+        exit 0
+        ;;
+      devices)
+        echo "List of devices attached"
+        echo "USB1 device model:Pixel_8"
+        exit 0
+        ;;
+    esac
+    exit 0
+    """)
+    
+    model.settings.customADBPath = adb.pathString
+    await model.detectADB()
+    #expect(model.adbStatus.isHealthy)
+    
+    let device = TestSupport.device(serial: "USB1", state: .online, friendlyName: "Pixel 8")
+    model.applyDeviceSnapshot([device])
+    
+    // Test Screenshot
+    model.takeScreenshot(device: device)
+    let screenshotLogged = await waitUntil(timeout: 3) {
+        model.activities.contains { $0.title == "Screenshot saved" }
+    }
+    #expect(screenshotLogged)
+    #expect(savedScreenshots.count == 1)
+    
+    // Test Screen Recording
+    model.startScreenRecording(device: device)
+    #expect(model.activeScreenRecordings[device.serial] != nil)
+    #expect(model.activities.contains { $0.title == "Screen recording started" })
+    
+    model.stopScreenRecording(device: device)
+    let recordingLogged = await waitUntil(timeout: 3) {
+        model.activities.contains { $0.title == "Screen recording saved" }
+    }
+    #expect(recordingLogged)
+    #expect(model.activeScreenRecordings[device.serial] == nil)
+    #expect(savedRecordings.count == 1)
+
+    // Test Screen Recording Discard
+    model.startScreenRecording(device: device)
+    #expect(model.activeScreenRecordings[device.serial] != nil)
+    
+    model.discardScreenRecording(device: device)
+    let discardLogged = await waitUntil(timeout: 3) {
+        model.activities.contains { $0.title == "Discarded screen recording" }
+    }
+    #expect(discardLogged)
+    #expect(model.activeScreenRecordings[device.serial] == nil)
+    
+    // Test App Control (Clear Data / Uninstall)
+    model.promptAndClearAppData(device: device)
+    let clearLogged = await waitUntil(timeout: 3) {
+        model.activities.contains { $0.title == "App data cleared" }
+    }
+    #expect(clearLogged)
+    #expect(promptedTitles.contains("Clear App Data"))
+    
+    model.promptAndUninstallApp(device: device)
+    let uninstallLogged = await waitUntil(timeout: 3) {
+        model.activities.contains { $0.title == "App uninstalled" }
+    }
+    #expect(uninstallLogged)
+    #expect(promptedTitles.contains("Uninstall App"))
+    
+    // Test Reboot
+    model.rebootDevice(device: device, mode: "recovery")
+    let rebootLogged = await waitUntil(timeout: 3) {
+        model.activities.contains { $0.title == "Device Rebooting" } ||
+            model.activities.contains { $0.title.hasPrefix("Rebooting device") }
+    }
+    #expect(rebootLogged)
+    
+    // Test Port Forwarding
+    model.configurePortForwarding(device: device)
+    let portLogged = await waitUntil(timeout: 3) {
+        model.activities.contains { $0.title == "Port rule configured" }
+    }
+    #expect(portLogged)
+    #expect(portForwardPromptCalled)
+    
+    // Test Mirroring
+    model.startMirroring(device: device)
+    #expect(model.activities.contains { $0.title == "scrcpy not found" })
+    
+    // Test Mirroring Successful Path (where scrcpy is located)
+    ScrcpyLocator.customPath = "/usr/bin/true"
+    defer { ScrcpyLocator.customPath = nil }
+    model.startMirroring(device: device)
+    #expect(model.activities.contains { $0.title == "Starting screen mirroring" })
+    
+    try await stopADBBackedServices(model, root: root)
+}
+
+
+@MainActor
 private func waitUntil(timeout: TimeInterval, condition: @escaping @MainActor () -> Bool) async -> Bool {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {

@@ -36,6 +36,13 @@ final class StatusBarController: NSObject {
         button.imagePosition = .imageLeft
         button.image = statusIcon
         button.toolTip = AppConstants.appName
+        
+        ScreenRecordHUDController.statusItemFrameProvider = { [weak self] in
+            guard let self = self,
+                  let btn = self.statusItem.button,
+                  let win = btn.window else { return nil }
+            return win.frame
+        }
     }
 
     private func configurePopover() {

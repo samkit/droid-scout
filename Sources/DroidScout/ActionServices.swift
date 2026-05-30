@@ -231,3 +231,78 @@ final class UpdateService {
         openHandler(AppConstants.githubReleasesURL)
     }
 }
+
+@MainActor
+final class ScreenRecordManager {
+    struct Session: Identifiable, Hashable, Sendable {
+        var id: UUID
+        var deviceSerial: String
+        var localURL: URL
+        var remotePath: String
+        var startedAt: Date
+    }
+
+    private var processes: [UUID: Process] = [:]
+    private(set) var sessions: [Session] = []
+
+    func startRecording(device: AndroidDevice, adbPath: String, localURL: URL) throws -> Session {
+        let remotePath = "/sdcard/droid_scout_record_\(UUID().uuidString.prefix(8)).mp4"
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: adbPath)
+        process.arguments = ["-s", device.serial, "shell", "screenrecord", remotePath]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+
+        let session = Session(id: UUID(), deviceSerial: device.serial, localURL: localURL, remotePath: remotePath, startedAt: Date())
+        processes[session.id] = process
+        sessions.append(session)
+        return session
+    }
+
+    func stop(_ session: Session, adbPath: String) async -> CommandResult {
+        if let process = processes[session.id] {
+            if process.isRunning {
+                process.terminate()
+                process.waitUntilExit()
+            }
+        }
+        processes[session.id] = nil
+        sessions.removeAll { $0.id == session.id }
+
+        try? await Task.sleep(nanoseconds: 800_000_000)
+
+        let pullResult = await ProcessRunner.run(
+            executablePath: adbPath,
+            arguments: ["-s", session.deviceSerial, "pull", session.remotePath, session.localURL.pathString],
+            timeout: 60
+        )
+
+        _ = await ProcessRunner.run(
+            executablePath: adbPath,
+            arguments: ["-s", session.deviceSerial, "shell", "rm", session.remotePath],
+            timeout: 10
+        )
+
+        return pullResult
+    }
+
+    func discard(_ session: Session, adbPath: String) async {
+        if let process = processes[session.id] {
+            if process.isRunning {
+                process.terminate()
+                process.waitUntilExit()
+            }
+        }
+        processes[session.id] = nil
+        sessions.removeAll { $0.id == session.id }
+
+        try? await Task.sleep(nanoseconds: 300_000_000)
+
+        _ = await ProcessRunner.run(
+            executablePath: adbPath,
+            arguments: ["-s", session.deviceSerial, "shell", "rm", session.remotePath],
+            timeout: 10
+        )
+    }
+}

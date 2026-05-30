@@ -90,6 +90,44 @@ final class ADBClient: @unchecked Sendable {
     func pair(address: String, pairingCode: String) async -> CommandResult {
         await run(arguments: ["pair", address, pairingCode], timeout: 20)
     }
+
+    func takeScreenshot(serial: String, localURL: URL) async -> CommandResult {
+        let remotePath = "/sdcard/droid_scout_screenshot.png"
+        let capResult = await run(serial: serial, arguments: ["shell", "screencap", "-p", remotePath], timeout: 15)
+        guard capResult.succeeded else { return capResult }
+        let pullResult = await run(serial: serial, arguments: ["pull", remotePath, localURL.pathString], timeout: 30)
+        _ = await run(serial: serial, arguments: ["shell", "rm", remotePath], timeout: 10)
+        return pullResult
+    }
+
+    func clearAppData(serial: String, packageId: String) async -> CommandResult {
+        await run(serial: serial, arguments: ["shell", "pm", "clear", packageId], timeout: 15)
+    }
+
+    func uninstallApp(serial: String, packageId: String) async -> CommandResult {
+        await run(serial: serial, arguments: ["shell", "pm", "uninstall", packageId], timeout: 15)
+    }
+
+    func reboot(serial: String, mode: String?) async -> CommandResult {
+        let args = mode == nil || mode!.isEmpty ? ["reboot"] : ["reboot", mode!]
+        return await run(serial: serial, arguments: args, timeout: 15)
+    }
+
+    func forwardPort(serial: String, local: String, remote: String) async -> CommandResult {
+        await run(serial: serial, arguments: ["forward", local, remote], timeout: 15)
+    }
+
+    func removeForwardPort(serial: String, local: String) async -> CommandResult {
+        await run(serial: serial, arguments: ["forward", "--remove", local], timeout: 15)
+    }
+
+    func reversePort(serial: String, remote: String, local: String) async -> CommandResult {
+        await run(serial: serial, arguments: ["reverse", remote, local], timeout: 15)
+    }
+
+    func removeReversePort(serial: String, remote: String) async -> CommandResult {
+        await run(serial: serial, arguments: ["reverse", "--remove", remote], timeout: 15)
+    }
 }
 
 final class EmulatorService: @unchecked Sendable {
@@ -607,5 +645,33 @@ enum AVDDeviceMerger {
             return rhs
         }
         return lhs
+    }
+}
+
+public final class ScrcpyLocator: @unchecked Sendable {
+    public nonisolated(unsafe) static var customPath: String?
+    
+    public static func locate(fileManager: FileManager = .default) -> String? {
+        if let customPath { return customPath }
+        let candidates = [
+            "/opt/homebrew/bin/scrcpy",
+            "/usr/local/bin/scrcpy",
+            "/usr/bin/scrcpy"
+        ]
+        for candidate in candidates {
+            if fileManager.isExecutableFile(atPath: candidate) {
+                return candidate
+            }
+        }
+        
+        let environment = ProcessInfo.processInfo.environment
+        let pathValue = environment["PATH"] ?? "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+        for directory in pathValue.split(separator: ":") {
+            let path = URL(fileURLWithPath: String(directory)).appendingPathComponent("scrcpy").pathString
+            if fileManager.isExecutableFile(atPath: path) {
+                return path
+            }
+        }
+        return nil
     }
 }
