@@ -125,7 +125,7 @@ enum MacSystemActions {
     }
 
     private static func requestNotificationAuthorization() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { @Sendable _, _ in }
     }
 
     private static func deliverNotification(title: String, body: String) {
