@@ -1064,6 +1064,24 @@ public final class DroidScoutModel: ObservableObject {
         }
     }
 
+    public func shutdownEmulator(device: AndroidDevice) {
+        guard let adbClient else { return }
+        deliverDirectNotification(title: "Shutting Down Emulator", body: "Shutting down \(device.friendlyName)...")
+        recordActivity(kind: .device, title: "Shutting down emulator", detail: device.friendlyName, deviceSerials: [device.serial], success: nil)
+        Task {
+            let result = await adbClient.run(serial: device.serial, arguments: ["emu", "kill"], timeout: 15)
+            let succeeded = result.succeeded || result.stderr.contains("closed") || result.stderr.contains("transport")
+            if succeeded {
+                deliverDirectNotification(title: "Emulator Shut Down", body: "\(device.friendlyName) has been shut down.")
+                await tracker.refresh()
+            } else {
+                recordActivity(kind: .device, title: "Emulator shutdown failed", detail: result.stderr, deviceSerials: [device.serial], success: false)
+                deliverDirectNotification(title: "Shutdown Failed", body: result.stderr.nilIfBlank ?? "An unknown error occurred.")
+            }
+        }
+    }
+
+
     public func configurePortForwarding(device: AndroidDevice) {
         guard let adbClient else { return }
         guard let config = portForwardPromptProvider() else { return }

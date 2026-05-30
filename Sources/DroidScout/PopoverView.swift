@@ -920,6 +920,10 @@ struct DeviceActionsMenuButton: NSViewRepresentable {
             rebootMenu.addItem(menuItem("System", action: #selector(rebootSystem)))
             rebootMenu.addItem(menuItem("Bootloader", action: #selector(rebootBootloader)))
             rebootMenu.addItem(menuItem("Recovery", action: #selector(rebootRecovery)))
+            if device.isEmulator {
+                rebootMenu.addItem(NSMenuItem.separator())
+                rebootMenu.addItem(menuItem("Shutdown Emulator", action: #selector(shutdownEmulator)))
+            }
             rebootItem.submenu = rebootMenu
             menu.addItem(rebootItem)
             
@@ -1016,6 +1020,10 @@ struct DeviceActionsMenuButton: NSViewRepresentable {
 
         @objc func rebootRecovery() {
             model.rebootDevice(device: device, mode: "recovery")
+        }
+
+        @objc func shutdownEmulator() {
+            model.shutdownEmulator(device: device)
         }
 
         func menuItem(_ title: String, action: Selector, enabled: Bool = true) -> NSMenuItem {

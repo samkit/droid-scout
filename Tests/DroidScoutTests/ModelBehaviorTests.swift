@@ -891,6 +891,14 @@ import Testing
             model.activities.contains { $0.title.hasPrefix("Rebooting device") }
     }
     #expect(rebootLogged)
+
+    // Test Shutdown Emulator
+    model.shutdownEmulator(device: device)
+    let shutdownLogged = await waitUntil(timeout: 3) {
+        model.activities.contains { $0.title == "Shutting down emulator" }
+    }
+    #expect(shutdownLogged)
+
     
     // Test Port Forwarding
     model.configurePortForwarding(device: device)
