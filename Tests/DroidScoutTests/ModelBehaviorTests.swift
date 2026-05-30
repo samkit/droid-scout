@@ -901,6 +901,7 @@ import Testing
     #expect(portForwardPromptCalled)
     
     // Test Mirroring
+    ScrcpyLocator.customPath = "/nonexistent/scrcpy"
     model.startMirroring(device: device)
     #expect(model.activities.contains { $0.title == "scrcpy not found" })
     

@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 public enum SettingsTab: String, CaseIterable, Identifiable {
-    case adb
+    case tools
     case projects
     case logs
     case updates
@@ -15,16 +15,16 @@ public struct DroidScoutSettingsView: View {
     @ObservedObject var model: DroidScoutModel
     @State private var selectedTab: SettingsTab
 
-    public init(model: DroidScoutModel, initialTab: SettingsTab = .adb) {
+    public init(model: DroidScoutModel, initialTab: SettingsTab = .tools) {
         self.model = model
         _selectedTab = State(initialValue: initialTab)
     }
 
     public var body: some View {
         TabView(selection: $selectedTab) {
-            DroidScoutSettingsPaneView(model: model, tab: .adb)
-            .tabItem { Label("ADB", systemImage: "wrench.and.screwdriver") }
-            .tag(SettingsTab.adb)
+            DroidScoutSettingsPaneView(model: model, tab: .tools)
+            .tabItem { Label("Tools", systemImage: "wrench.and.screwdriver") }
+            .tag(SettingsTab.tools)
 
             DroidScoutSettingsPaneView(model: model, tab: .projects)
             .tabItem { Label("Projects", systemImage: "folder") }
@@ -54,7 +54,7 @@ struct DroidScoutSettingsPaneView: View {
     var body: some View {
         SettingsPane {
             switch tab {
-            case .adb:
+            case .tools:
                 adbSettings
             case .projects:
                 projectSettings
@@ -69,43 +69,87 @@ struct DroidScoutSettingsPaneView: View {
     }
 
     private var adbSettings: some View {
-        SettingsSection(title: "ADB") {
-            SettingsRow("Detected path") {
-                Text(model.adbStatus.path ?? "Not found")
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .textSelection(.enabled)
-                    .foregroundStyle(model.adbStatus.isHealthy ? .primary : .secondary)
-            }
-
-            if let custom = model.settings.customADBPath {
-                SettingsRow("Custom path") {
-                    Text(custom)
+        VStack(alignment: .leading, spacing: 14) {
+            SettingsSection(title: "ADB") {
+                SettingsRow("Detected path") {
+                    Text(model.adbStatus.path ?? "Not found")
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .textSelection(.enabled)
+                        .foregroundStyle(model.adbStatus.isHealthy ? .primary : .secondary)
                 }
-            }
 
-            SettingsRow("") {
-                HStack(spacing: 8) {
-                    Button("Choose ADB...", action: model.chooseADB)
-                    Button("Retry Detection", action: model.retryADBDetection)
-                    Button("Clear Custom Path", action: model.clearCustomADBPathAndRetry)
-                    .disabled(model.settings.customADBPath == nil)
-                }
-            }
-
-            if !model.adbStatus.isHealthy {
-                SettingsRow("Install hint") {
-                    HStack(spacing: 8) {
-                        Text("brew install android-platform-tools")
-                            .font(.system(.body, design: .monospaced))
+                if let custom = model.settings.customADBPath {
+                    SettingsRow("Custom path") {
+                        Text(custom)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                             .textSelection(.enabled)
-                        Button(action: model.copyHomebrewInstallHint) {
-                            Image(systemName: "doc.on.doc")
+                    }
+                }
+
+                SettingsRow("") {
+                    HStack(spacing: 8) {
+                        Button("Choose ADB...", action: model.chooseADB)
+                        Button("Retry Detection", action: model.retryADBDetection)
+                        Button("Clear Custom Path", action: model.clearCustomADBPathAndRetry)
+                        .disabled(model.settings.customADBPath == nil)
+                    }
+                }
+
+                if !model.adbStatus.isHealthy {
+                    SettingsRow("Install hint") {
+                        HStack(spacing: 8) {
+                            Text("brew install android-platform-tools")
+                                .font(.system(.body, design: .monospaced))
+                                .textSelection(.enabled)
+                            Button(action: model.copyHomebrewInstallHint) {
+                                Image(systemName: "doc.on.doc")
+                            }
+                            .help("Copy install hint")
                         }
-                        .help("Copy install hint")
+                    }
+                }
+            }
+
+            SettingsSection(title: "Screen Mirroring (scrcpy)") {
+                SettingsRow("Detected path") {
+                    Text(ScrcpyLocator.locate(customPath: model.settings.customScrcpyPath) ?? "Not found")
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                        .foregroundStyle(ScrcpyLocator.locate(customPath: model.settings.customScrcpyPath) != nil ? .primary : .secondary)
+                }
+
+                if let custom = model.settings.customScrcpyPath {
+                    SettingsRow("Custom path") {
+                        Text(custom)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                    }
+                }
+
+                SettingsRow("") {
+                    HStack(spacing: 8) {
+                        Button("Choose scrcpy...", action: model.chooseScrcpy)
+                        Button("Retry Detection", action: model.retryScrcpyDetection)
+                        Button("Clear Custom Path", action: model.clearCustomScrcpyPath)
+                        .disabled(model.settings.customScrcpyPath == nil)
+                    }
+                }
+
+                if ScrcpyLocator.locate(customPath: model.settings.customScrcpyPath) == nil {
+                    SettingsRow("Install hint") {
+                        HStack(spacing: 8) {
+                            Text("brew install scrcpy")
+                                .font(.system(.body, design: .monospaced))
+                                .textSelection(.enabled)
+                            Button(action: model.copyScrcpyInstallHint) {
+                                Image(systemName: "doc.on.doc")
+                            }
+                            .help("Copy install hint")
+                        }
                     }
                 }
             }

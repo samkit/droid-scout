@@ -651,8 +651,11 @@ enum AVDDeviceMerger {
 public final class ScrcpyLocator: @unchecked Sendable {
     public nonisolated(unsafe) static var customPath: String?
     
-    public static func locate(fileManager: FileManager = .default) -> String? {
-        if let customPath { return customPath }
+    public static func locate(customPath: String? = nil, fileManager: FileManager = .default) -> String? {
+        let pathToCheck = customPath ?? Self.customPath
+        if let pathToCheck {
+            return fileManager.isExecutableFile(atPath: pathToCheck) ? pathToCheck : nil
+        }
         let candidates = [
             "/opt/homebrew/bin/scrcpy",
             "/usr/local/bin/scrcpy",

@@ -8,6 +8,7 @@ enum MacSystemActions {
     static func make() -> DroidScoutSystemActions {
         DroidScoutSystemActions(
             chooseADBURLProvider: chooseADBURL,
+            chooseScrcpyURLProvider: chooseScrcpyURL,
             projectFolderURLsProvider: projectFolderURLs,
             installAPKURLsProvider: installAPKURLs,
             textCopier: copyText,
@@ -30,6 +31,16 @@ enum MacSystemActions {
     private static func chooseADBURL() -> URL? {
         let panel = NSOpenPanel()
         panel.title = "Choose ADB"
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose"
+        return panel.runModal() == .OK ? panel.url : nil
+    }
+
+    private static func chooseScrcpyURL() -> URL? {
+        let panel = NSOpenPanel()
+        panel.title = "Choose scrcpy"
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = false

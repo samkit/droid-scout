@@ -345,6 +345,7 @@ public enum LogTarget: String, Codable, CaseIterable, Identifiable, Sendable {
 
 public struct AppSettings: Codable, Equatable, Sendable {
     var customADBPath: String?
+    var customScrcpyPath: String?
     var watchedProjectPaths: [String]
     var notificationMode: NotificationMode
     var logTarget: LogTarget
@@ -356,6 +357,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
 
     static let defaults = AppSettings(
         customADBPath: nil,
+        customScrcpyPath: nil,
         watchedProjectPaths: [],
         notificationMode: .reduced,
         logTarget: .terminal,
@@ -368,6 +370,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
 
     init(
         customADBPath: String?,
+        customScrcpyPath: String?,
         watchedProjectPaths: [String],
         notificationMode: NotificationMode,
         logTarget: LogTarget,
@@ -378,6 +381,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         hiddenDeviceIdentities: [String]
     ) {
         self.customADBPath = customADBPath
+        self.customScrcpyPath = customScrcpyPath
         self.watchedProjectPaths = watchedProjectPaths
         self.notificationMode = notificationMode
         self.logTarget = logTarget
@@ -391,6 +395,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         customADBPath = try container.decodeIfPresent(String.self, forKey: .customADBPath)
+        customScrcpyPath = try container.decodeIfPresent(String.self, forKey: .customScrcpyPath)
         watchedProjectPaths = try container.decodeIfPresent([String].self, forKey: .watchedProjectPaths) ?? Self.defaults.watchedProjectPaths
         notificationMode = try container.decodeIfPresent(NotificationMode.self, forKey: .notificationMode) ?? Self.defaults.notificationMode
         logTarget = try container.decodeIfPresent(LogTarget.self, forKey: .logTarget) ?? Self.defaults.logTarget

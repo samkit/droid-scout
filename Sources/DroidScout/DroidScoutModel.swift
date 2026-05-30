@@ -30,6 +30,7 @@ public final class DroidScoutModel: ObservableObject {
     private let logSessionManager: LogSessionManager
     private let updateService: UpdateService
     private let chooseADBURLProvider: @MainActor () -> URL?
+    private let chooseScrcpyURLProvider: @MainActor () -> URL?
     private let projectFolderURLsProvider: @MainActor () -> [URL]
     private let installAPKURLsProvider: @MainActor () -> [URL]
     private let textCopier: @MainActor (String) -> Void
@@ -71,6 +72,7 @@ public final class DroidScoutModel: ObservableObject {
             ),
             updateService: UpdateService(openHandler: systemActions.updateOpener),
             chooseADBURLProvider: systemActions.chooseADBURLProvider,
+            chooseScrcpyURLProvider: systemActions.chooseScrcpyURLProvider,
             projectFolderURLsProvider: systemActions.projectFolderURLsProvider,
             installAPKURLsProvider: systemActions.installAPKURLsProvider,
             textCopier: systemActions.textCopier,
@@ -91,6 +93,7 @@ public final class DroidScoutModel: ObservableObject {
         logSessionManager: LogSessionManager = LogSessionManager(),
         updateService: UpdateService = UpdateService(),
         chooseADBURLProvider: @escaping @MainActor () -> URL? = { nil },
+        chooseScrcpyURLProvider: @escaping @MainActor () -> URL? = { nil },
         projectFolderURLsProvider: @escaping @MainActor () -> [URL] = { [] },
         installAPKURLsProvider: @escaping @MainActor () -> [URL] = { [] },
         textCopier: @escaping @MainActor (String) -> Void = { _ in },
@@ -108,6 +111,7 @@ public final class DroidScoutModel: ObservableObject {
         self.logSessionManager = logSessionManager
         self.updateService = updateService
         self.chooseADBURLProvider = chooseADBURLProvider
+        self.chooseScrcpyURLProvider = chooseScrcpyURLProvider
         self.projectFolderURLsProvider = projectFolderURLsProvider
         self.installAPKURLsProvider = installAPKURLsProvider
         self.textCopier = textCopier
@@ -223,6 +227,18 @@ public final class DroidScoutModel: ObservableObject {
         retryADBDetection()
     }
 
+    func clearCustomScrcpyPath() {
+        settings.customScrcpyPath = nil
+    }
+
+    func retryScrcpyDetection() {
+        objectWillChange.send()
+    }
+
+    func copyScrcpyInstallHint() {
+        textCopier("brew install scrcpy")
+    }
+
     func restartADBServer() {
         guard !isRestartingADBServer else { return }
         guard let adbClient else {
@@ -294,6 +310,15 @@ public final class DroidScoutModel: ObservableObject {
         guard let url else { return }
         settings.customADBPath = url.pathString
         Task { await detectADB() }
+    }
+
+    func chooseScrcpy() {
+        chooseScrcpy(url: chooseScrcpyURLProvider())
+    }
+
+    func chooseScrcpy(url: URL?) {
+        guard let url else { return }
+        settings.customScrcpyPath = url.pathString
     }
 
     func refreshDevices() {
@@ -1076,7 +1101,7 @@ public final class DroidScoutModel: ObservableObject {
     }
 
     public func startMirroring(device: AndroidDevice) {
-        guard let scrcpyPath = ScrcpyLocator.locate() else {
+        guard let scrcpyPath = ScrcpyLocator.locate(customPath: settings.customScrcpyPath) else {
             recordActivity(kind: .adb, title: "scrcpy not found", detail: "Install scrcpy via Homebrew to use screen mirroring: brew install scrcpy", deviceSerials: [device.serial], success: false)
             
             if !isTestingEnvironment {

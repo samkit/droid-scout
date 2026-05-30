@@ -143,7 +143,7 @@ final class StatusBarController: NSObject {
             return
         }
 
-        let window = NSWindow(
+        let window = ClosableWindow(
             contentRect: NSRect(x: 0, y: 0, width: 680, height: 500),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
@@ -165,7 +165,7 @@ final class StatusBarController: NSObject {
             return
         }
 
-        let window = NSWindow(
+        let window = ClosableWindow(
             contentRect: NSRect(x: 0, y: 0, width: 680, height: 460),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
@@ -201,5 +201,15 @@ final class StatusBarController: NSObject {
 extension StatusBarController: NSPopoverDelegate {
     func popoverDidClose(_ notification: Notification) {
         removeOutsideClickMonitors()
+    }
+}
+
+final class ClosableWindow: NSWindow {
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "w" {
+            self.performClose(nil)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
     }
 }

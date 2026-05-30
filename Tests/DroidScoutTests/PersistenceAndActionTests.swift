@@ -18,6 +18,7 @@ import Testing
 
     var settings = AppSettings.defaults
     settings.customADBPath = "/tmp/adb"
+    settings.customScrcpyPath = "/tmp/scrcpy"
     settings.watchedProjectPaths = ["/project"]
     settings.notificationMode = .full
     settings.logTarget = .zed

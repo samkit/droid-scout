@@ -2,6 +2,7 @@ import Foundation
 
 public struct DroidScoutSystemActions {
     public var chooseADBURLProvider: @MainActor () -> URL?
+    public var chooseScrcpyURLProvider: @MainActor () -> URL?
     public var projectFolderURLsProvider: @MainActor () -> [URL]
     public var installAPKURLsProvider: @MainActor () -> [URL]
     public var textCopier: @MainActor (String) -> Void
@@ -21,6 +22,7 @@ public struct DroidScoutSystemActions {
 
     public init(
         chooseADBURLProvider: @escaping @MainActor () -> URL? = { nil },
+        chooseScrcpyURLProvider: @escaping @MainActor () -> URL? = { nil },
         projectFolderURLsProvider: @escaping @MainActor () -> [URL] = { [] },
         installAPKURLsProvider: @escaping @MainActor () -> [URL] = { [] },
         textCopier: @escaping @MainActor (String) -> Void = { _ in },
@@ -39,6 +41,7 @@ public struct DroidScoutSystemActions {
         portForwardPromptProvider: @escaping @MainActor () -> (type: String, local: String, remote: String)? = { nil }
     ) {
         self.chooseADBURLProvider = chooseADBURLProvider
+        self.chooseScrcpyURLProvider = chooseScrcpyURLProvider
         self.projectFolderURLsProvider = projectFolderURLsProvider
         self.installAPKURLsProvider = installAPKURLsProvider
         self.textCopier = textCopier
