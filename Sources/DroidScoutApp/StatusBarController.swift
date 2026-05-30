@@ -41,7 +41,7 @@ final class StatusBarController: NSObject {
     private func configurePopover() {
         popover.behavior = .transient
         popover.delegate = self
-        popover.contentSize = NSSize(width: 390, height: 588)
+        popover.contentSize = NSSize(width: 390, height: 560)
         popover.contentViewController = NSHostingController(rootView: DroidScoutPopoverView(
             model: model,
             openSettings: { [weak self] in

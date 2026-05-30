@@ -5,6 +5,7 @@ public struct DroidScoutPopoverView: View {
     @ObservedObject var model: DroidScoutModel
     @State private var isRecentActivityExpanded = false
     @State private var isPairingPresented = false
+    @State private var isHoveringVersion = false
     var openSettings: () -> Void
     var openInstallProgress: () -> Void
     var footerMenuPresenter: @MainActor (NSMenu, NSView) -> Void
@@ -55,8 +56,29 @@ public struct DroidScoutPopoverView: View {
         HStack(spacing: 10) {
             headerIcon
             VStack(alignment: .leading, spacing: 1) {
-                Text(AppConstants.appName)
-                    .font(.headline)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(AppConstants.appName)
+                        .font(.headline)
+                    
+                    Button(action: {
+                        NSWorkspace.shared.open(AppConstants.githubRepoURL)
+                    }) {
+                        Text("v\(AppConstants.appVersion)")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(isHoveringVersion ? .primary : .secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(isHoveringVersion ? Color.primary.opacity(0.15) : Color.primary.opacity(0.08))
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .focusable(false)
+                    .onHover { hovering in
+                        isHoveringVersion = hovering
+                    }
+                    .help("Open GitHub Repository")
+                }
+                
                 Text(headerSubtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -216,7 +238,7 @@ public struct DroidScoutPopoverView: View {
                 showPairing: { isPairingPresented = true },
                 menuPresenter: footerMenuPresenter
             )
-                .frame(height: 112)
+                .frame(height: 84)
         }
         .animation(.easeInOut(duration: 0.18), value: isRecentActivityExpanded)
         .overlay(alignment: .top) {
@@ -287,24 +309,6 @@ struct FooterMenuListView: NSViewRepresentable {
             })
 
         case .bottom:
-            stackView.addArrangedSubview(row(title: "About", showsSubmenuIndicator: true) { sourceView in
-                let menu = NSMenu(title: "About")
-                
-                let versionItem = NSMenuItem(title: "Version \(AppConstants.appVersion)", action: nil, keyEquivalent: "")
-                versionItem.isEnabled = false
-                menu.addItem(versionItem)
-                
-                menu.addItem(NSMenuItem.separator())
-                
-                menu.addItem(ClosureMenuItem(
-                    title: "GitHub Repository",
-                    handler: {
-                        NSWorkspace.shared.open(AppConstants.githubRepoURL)
-                    }
-                ))
-                
-                menuPresenter(menu, sourceView)
-            })
             stackView.addArrangedSubview(row(title: "Check for Updates", action: model.checkForUpdates))
             stackView.addArrangedSubview(row(title: "Reveal Logs", action: model.revealLogs))
             stackView.addArrangedSubview(row(title: "Quit", action: model.quit))
