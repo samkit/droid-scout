@@ -30,7 +30,16 @@ It uses your installed Android Platform Tools. No bundled ADB, no account, no te
 
 ### Homebrew Cask
 
-The public cask is the intended install path for launch:
+#### Personal Tap (Unsigned Open-Source Release)
+To install from the personal Homebrew Tap and bypass macOS Gatekeeper quarantine (since this is a free, open-source utility without a paid Apple signature):
+
+```sh
+brew tap samkit/tap
+HOMEBREW_CASK_OPTS="--no-quarantine" brew install --cask samkit/tap/droid-scout
+```
+
+#### Public Cask (When Published)
+Once published to the official Homebrew repository:
 
 ```sh
 brew install --cask droid-scout
@@ -41,8 +50,6 @@ Upgrade with:
 ```sh
 brew upgrade --cask droid-scout
 ```
-
-Until the first public cask is published, build from source with the steps below.
 
 Maintainers can prepare the release zip, checksum, and cask file with the
 [Homebrew cask release guide](docs/homebrew-cask.md).
