@@ -16,6 +16,7 @@ public final class DroidScoutModel: ObservableObject {
     @Published var isRefreshingDevices = false
     @Published var isRestartingADBServer = false
     @Published var isPairingDevice = false
+    @Published var launchingEmulatorAVDNames: Set<String> = []
     @Published public var settings: AppSettings {
         didSet {
             store.saveSettings(settings)
@@ -504,6 +505,7 @@ public final class DroidScoutModel: ObservableObject {
 
     func startEmulator(device: AndroidDevice) {
         guard let avdName = device.avdName else { return }
+        guard !launchingEmulatorAVDNames.contains(avdName) else { return }
         guard let emulatorService, emulatorService.isAvailable else {
             recordActivity(
                 kind: .adb,
@@ -515,6 +517,7 @@ public final class DroidScoutModel: ObservableObject {
             return
         }
 
+        launchingEmulatorAVDNames.insert(avdName)
         do {
             try emulatorService.startAVD(named: avdName)
             recordActivity(
@@ -529,6 +532,7 @@ public final class DroidScoutModel: ObservableObject {
                 await tracker.refresh()
             }
         } catch {
+            launchingEmulatorAVDNames.remove(avdName)
             recordActivity(
                 kind: .adb,
                 title: "Emulator start failed",
@@ -537,6 +541,11 @@ public final class DroidScoutModel: ObservableObject {
                 success: false
             )
         }
+    }
+
+    func isLaunchingEmulator(device: AndroidDevice) -> Bool {
+        guard let avdName = device.avdName else { return false }
+        return launchingEmulatorAVDNames.contains(avdName)
     }
 
     func revealLogs() {
@@ -798,6 +807,8 @@ public final class DroidScoutModel: ObservableObject {
         let previousBySerial = Dictionary(uniqueKeysWithValues: devices.map { ($0.serial, $0) })
         let previousSerials = Set(previousBySerial.keys)
         let snapshotSerials = Set(snapshot.map(\.serial))
+        let onlineAVDNames = Set(snapshot.filter { $0.state == .online }.compactMap(\.avdName))
+        launchingEmulatorAVDNames.subtract(onlineAVDNames)
         let retainedDevices = previousBySerial.values.compactMap { previous -> AndroidDevice? in
             guard !previous.isEmulator, !snapshotSerials.contains(previous.serial) else {
                 return nil

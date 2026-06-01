@@ -754,6 +754,7 @@ import Testing
     let stopped = TestSupport.device(serial: "avd:Pixel_API", state: .stopped, friendlyName: "Pixel API", avdName: "Pixel_API")
     model.startEmulator(device: stopped)
     #expect(model.activities.first?.title == "Emulator starting")
+    #expect(model.isLaunchingEmulator(device: stopped))
     let emulatorLaunched = await waitUntil(timeout: 2) {
         (try? String(contentsOf: emulatorCalls))?.contains("-avd Pixel_API") == true
     }
@@ -763,6 +764,7 @@ import Testing
 
     let runningEmulator = TestSupport.device(serial: "emulator-5554", state: .online, friendlyName: "Pixel API", avdName: "Pixel_API")
     model.applyDeviceSnapshot([runningEmulator])
+    #expect(!model.isLaunchingEmulator(device: stopped))
     model.applyDeviceSnapshot([])
     #expect(model.activities.first?.title == "Device disconnected")
 

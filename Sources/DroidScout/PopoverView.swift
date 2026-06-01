@@ -755,6 +755,10 @@ private struct DeviceRowView: View {
                     if let transport = device.transportHint {
                         Text(transport)
                     }
+                    if model.isLaunchingEmulator(device: device) {
+                        Text("Starting...")
+                            .foregroundStyle(.orange)
+                    }
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -769,14 +773,22 @@ private struct DeviceRowView: View {
                 Button {
                     model.startEmulator(device: device)
                 } label: {
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 12, weight: .semibold))
-                        .frame(width: 30, height: 30)
-                        .contentShape(Rectangle())
+                    if model.isLaunchingEmulator(device: device) {
+                        ProgressView()
+                            .controlSize(.small)
+                            .frame(width: 30, height: 30)
+                            .contentShape(Rectangle())
+                    } else {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 12, weight: .semibold))
+                            .frame(width: 30, height: 30)
+                            .contentShape(Rectangle())
+                    }
                 }
                 .buttonStyle(.plain)
                 .focusable(false)
-                .help("Start emulator")
+                .disabled(model.isLaunchingEmulator(device: device))
+                .help(model.isLaunchingEmulator(device: device) ? "Starting emulator..." : "Start emulator")
             } else {
                 Color.clear
                     .frame(width: 30, height: 30)
@@ -873,7 +885,8 @@ struct DeviceActionsMenuButton: NSViewRepresentable {
             let menu = NSMenu()
             menu.addItem(menuItem("Copy Serial", action: #selector(copySerial)))
             if device.canStartEmulator {
-                menu.addItem(menuItem("Start Emulator", action: #selector(startEmulator)))
+                let isLaunching = model.isLaunchingEmulator(device: device)
+                menu.addItem(menuItem(isLaunching ? "Starting Emulator..." : "Start Emulator", action: #selector(startEmulator), enabled: !isLaunching))
             }
             menu.addItem(menuItem("Install APK...", action: #selector(installAPK), enabled: device.state == .online))
             menu.addItem(NSMenuItem.separator())
