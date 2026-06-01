@@ -210,22 +210,21 @@ public struct DroidScoutPopoverView: View {
             button.setFrameSize(NSSize(width: width, height: height))
             let menu = button.menu!
 
-            let placeholder = NSMenuItem(title: heading, action: nil, keyEquivalent: "")
-            placeholder.isEnabled = false
-            menu.addItem(placeholder)
+            let headingItem = NSMenuItem(title: heading, action: nil, keyEquivalent: "")
+            headingItem.isEnabled = true
+            menu.addItem(headingItem)
 
-            if isEnabled && !items.isEmpty {
+            if !items.isEmpty {
                 for (index, item) in items.enumerated() {
                     let menuItem = NSMenuItem(
                         title: item.title,
                         action: nil,
                         keyEquivalent: ""
                     )
-                    menuItem.isEnabled = item.isEnabled
+                    menuItem.isEnabled = isEnabled && item.isEnabled
                     menuItem.tag = index
                     button.menu?.addItem(menuItem)
                 }
-                button.selectItem(at: 0)
             } else {
                 let emptyItem = NSMenuItem(title: emptyTitle, action: nil, keyEquivalent: "")
                 emptyItem.isEnabled = false
@@ -253,11 +252,18 @@ public struct DroidScoutPopoverView: View {
             @MainActor
             @objc func itemSelected(_ sender: NSPopUpButton) {
                 let selectedIndex = sender.indexOfSelectedItem - 1
+                guard parent.isEnabled else {
+                    sender.selectItem(at: 0)
+                    return
+                }
                 guard selectedIndex >= 0, selectedIndex < parent.items.count else {
                     sender.selectItem(at: 0)
                     return
                 }
-                guard parent.items[selectedIndex].isEnabled else { return }
+                guard parent.items[selectedIndex].isEnabled else {
+                    sender.selectItem(at: 0)
+                    return
+                }
                 parent.items[selectedIndex].action()
                 sender.selectItem(at: 0)
             }
