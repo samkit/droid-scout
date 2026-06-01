@@ -8,6 +8,7 @@ import Testing
     #expect(AppConstants.applicationSupportURL.lastPathComponent == "Droid Scout")
     #expect(AppConstants.logsURL.lastPathComponent == "Droid Scout")
     #expect(AppConstants.githubReleasesURL.absoluteString.contains("/releases"))
+    #expect(!AppConstants.appVersion.isEmpty)
 
     #expect(DeviceConnectionState(adbState: "device") == .online)
     #expect(DeviceConnectionState(adbState: "unauthorized") == .unauthorized)
@@ -125,6 +126,13 @@ import Testing
     #expect(InstallStatus.success.isTerminal)
     #expect(InstallStatus.failed.displayName == "Failed")
     #expect(InstallStatus.skipped.displayName == "Skipped")
+
+    #expect(!PairingStatus.running.isTerminal)
+    #expect(PairingStatus.running.displayName == "Pairing")
+    #expect(PairingStatus.success.isTerminal)
+    #expect(PairingStatus.success.displayName == "Paired")
+    #expect(PairingStatus.failed.isTerminal)
+    #expect(PairingStatus.failed.displayName == "Failed")
 
     #expect(NotificationMode.full.id == "full")
     #expect(NotificationMode.full.displayName == "Full")
