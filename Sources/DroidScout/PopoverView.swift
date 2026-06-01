@@ -205,7 +205,6 @@ public struct DroidScoutPopoverView: View {
             } else {
                 button.menu = NSMenu()
             }
-            button.isEnabled = isEnabled
             button.setAccessibilityIdentifier(accessibilityIdentifier)
             button.setAccessibilityLabel(accessibilityLabel)
             button.setFrameSize(NSSize(width: width, height: height))
@@ -254,7 +253,6 @@ public struct DroidScoutPopoverView: View {
             @MainActor
             @objc func itemSelected(_ sender: NSPopUpButton) {
                 let selectedIndex = sender.indexOfSelectedItem - 1
-                guard parent.isEnabled else { return }
                 guard selectedIndex >= 0, selectedIndex < parent.items.count else {
                     sender.selectItem(at: 0)
                     return
