@@ -126,12 +126,12 @@ Each device has a scoped context menu for serial copying, targeted APK install, 
 
 ---
 
-### ADB settings
+### General settings
 
-The ADB tab shows the detected platform-tools path and provides controls for choosing a custom `adb`, retrying detection, or clearing a custom path when one is active.
+The General tab lets you start Droid Scout at login, shows the detected platform-tools path, and provides controls for choosing a custom `adb`, retrying detection, or clearing a custom path when one is active.
 
 <p align="center">
-  <img src="docs/assets/readme/settings-adb.png" alt="Droid Scout ADB settings tab showing the detected adb path and controls to choose adb, retry detection, or clear a custom path." width="792">
+  <img src="docs/assets/readme/settings-adb.png" alt="Droid Scout General settings tab showing launch at login, the detected adb path, and controls to choose adb, retry detection, or clear a custom path." width="792">
 </p>
 
 ---

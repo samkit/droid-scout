@@ -30,6 +30,8 @@ public final class DroidScoutModel: ObservableObject {
     private let notificationManager: AppNotificationManager
     private let logSessionManager: LogSessionManager
     private let updateService: UpdateService
+    private let launchAtLoginStatusProvider: @MainActor () -> Bool
+    private let launchAtLoginSetter: @MainActor (Bool) throws -> Void
     private let chooseADBURLProvider: @MainActor () -> URL?
     private let chooseScrcpyURLProvider: @MainActor () -> URL?
     private let projectFolderURLsProvider: @MainActor () -> [URL]
@@ -72,6 +74,8 @@ public final class DroidScoutModel: ObservableObject {
                 revealLogsHandler: systemActions.logsRevealer
             ),
             updateService: UpdateService(openHandler: systemActions.updateOpener),
+            launchAtLoginStatusProvider: systemActions.launchAtLoginStatusProvider,
+            launchAtLoginSetter: systemActions.launchAtLoginSetter,
             chooseADBURLProvider: systemActions.chooseADBURLProvider,
             chooseScrcpyURLProvider: systemActions.chooseScrcpyURLProvider,
             projectFolderURLsProvider: systemActions.projectFolderURLsProvider,
@@ -93,6 +97,8 @@ public final class DroidScoutModel: ObservableObject {
         notificationManager: AppNotificationManager = AppNotificationManager(),
         logSessionManager: LogSessionManager = LogSessionManager(),
         updateService: UpdateService = UpdateService(),
+        launchAtLoginStatusProvider: @escaping @MainActor () -> Bool = { false },
+        launchAtLoginSetter: @escaping @MainActor (Bool) throws -> Void = { _ in },
         chooseADBURLProvider: @escaping @MainActor () -> URL? = { nil },
         chooseScrcpyURLProvider: @escaping @MainActor () -> URL? = { nil },
         projectFolderURLsProvider: @escaping @MainActor () -> [URL] = { [] },
@@ -111,6 +117,8 @@ public final class DroidScoutModel: ObservableObject {
         self.notificationManager = notificationManager
         self.logSessionManager = logSessionManager
         self.updateService = updateService
+        self.launchAtLoginStatusProvider = launchAtLoginStatusProvider
+        self.launchAtLoginSetter = launchAtLoginSetter
         self.chooseADBURLProvider = chooseADBURLProvider
         self.chooseScrcpyURLProvider = chooseScrcpyURLProvider
         self.projectFolderURLsProvider = projectFolderURLsProvider
@@ -180,6 +188,7 @@ public final class DroidScoutModel: ObservableObject {
     }
 
     public func start() {
+        refreshLaunchAtLoginStatus()
         notificationManager.requestAuthorization()
         logSessionManager.pruneLogs(retentionDays: settings.logRetentionDays)
         startRestartWatcher()
@@ -238,6 +247,40 @@ public final class DroidScoutModel: ObservableObject {
 
     func copyScrcpyInstallHint() {
         textCopier("brew install scrcpy")
+    }
+
+    func refreshLaunchAtLoginStatus() {
+        let isEnabled = launchAtLoginStatusProvider()
+        if settings.launchAtLogin != isEnabled {
+            settings.launchAtLogin = isEnabled
+        }
+    }
+
+    func setLaunchAtLoginEnabled(_ enabled: Bool) {
+        let previous = settings.launchAtLogin
+        settings.launchAtLogin = enabled
+
+        do {
+            try launchAtLoginSetter(enabled)
+            let actual = launchAtLoginStatusProvider()
+            if settings.launchAtLogin != actual {
+                settings.launchAtLogin = actual
+            }
+            recordActivity(
+                kind: .update,
+                title: enabled ? "Launch at login enabled" : "Launch at login disabled",
+                detail: enabled ? "Droid Scout will start automatically when you log in." : "Droid Scout will no longer start automatically when you log in.",
+                success: true
+            )
+        } catch {
+            settings.launchAtLogin = previous
+            recordActivity(
+                kind: .update,
+                title: "Launch at login update failed",
+                detail: error.localizedDescription,
+                success: false
+            )
+        }
     }
 
     func restartADBServer() {

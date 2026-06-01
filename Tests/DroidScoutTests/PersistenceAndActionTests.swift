@@ -26,6 +26,7 @@ import Testing
     settings.packagePollingInterval = 30
     settings.confidenceThreshold = .high
     settings.backgroundUpdateChecks = false
+    settings.launchAtLogin = true
     settings.hiddenDeviceIdentities = ["USB1"]
     store.saveSettings(settings)
     #expect(store.loadSettings() == settings)

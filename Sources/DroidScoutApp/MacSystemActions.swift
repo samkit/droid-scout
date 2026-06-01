@@ -1,5 +1,6 @@
 import AppKit
 import DroidScout
+import ServiceManagement
 import UniformTypeIdentifiers
 import UserNotifications
 
@@ -22,6 +23,8 @@ enum MacSystemActions {
             notificationAuthorizationRequester: requestNotificationAuthorization,
             notificationDeliverer: deliverNotification,
             updateOpener: { NSWorkspace.shared.open($0) },
+            launchAtLoginStatusProvider: launchAtLoginEnabled,
+            launchAtLoginSetter: setLaunchAtLoginEnabled,
             saveURLProvider: chooseSaveURL,
             packagePromptProvider: packagePrompt,
             portForwardPromptProvider: portForwardPrompt
@@ -174,6 +177,21 @@ enum MacSystemActions {
         let bundleID = Bundle.main.bundleIdentifier ?? "com.droidscout.app"
         let request = UNNotificationRequest(identifier: "\(bundleID).\(UUID().uuidString)", content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
+    }
+
+    private static func launchAtLoginEnabled() -> Bool {
+        let status = SMAppService.mainApp.status
+        return status == .enabled || status == .requiresApproval
+    }
+
+    private static func setLaunchAtLoginEnabled(_ enabled: Bool) throws {
+        if enabled {
+            if SMAppService.mainApp.status != .enabled {
+                try SMAppService.mainApp.register()
+            }
+        } else if SMAppService.mainApp.status != .notRegistered {
+            try SMAppService.mainApp.unregister()
+        }
     }
 
     private static func chooseSaveURL(defaultName: String, allowedExtension: String) -> URL? {

@@ -62,6 +62,48 @@ import Testing
 }
 
 @MainActor
+@Test func modelSyncsLaunchAtLoginSettingThroughSystemActions() throws {
+    enum LaunchAtLoginError: Error {
+        case denied
+    }
+
+    let root = try TestSupport.temporaryDirectory()
+    defer { TestSupport.cleanup(root) }
+    let store = LocalStore(
+        supportURL: root.appendingPathComponent("Support", isDirectory: true),
+        logsURL: root.appendingPathComponent("Logs", isDirectory: true)
+    )
+    var systemLaunchAtLogin = false
+    var shouldFail = false
+    let model = DroidScoutModel(
+        store: store,
+        launchAtLoginStatusProvider: { systemLaunchAtLogin },
+        launchAtLoginSetter: { enabled in
+            if shouldFail {
+                throw LaunchAtLoginError.denied
+            }
+            systemLaunchAtLogin = enabled
+        }
+    )
+
+    #expect(!model.settings.launchAtLogin)
+    model.setLaunchAtLoginEnabled(true)
+    #expect(model.settings.launchAtLogin)
+    #expect(store.loadSettings().launchAtLogin)
+    #expect(model.activities.first?.title == "Launch at login enabled")
+
+    shouldFail = true
+    model.setLaunchAtLoginEnabled(false)
+    #expect(model.settings.launchAtLogin)
+    #expect(store.loadSettings().launchAtLogin)
+    #expect(model.activities.first?.title == "Launch at login update failed")
+
+    systemLaunchAtLogin = false
+    model.refreshLaunchAtLoginStatus()
+    #expect(!model.settings.launchAtLogin)
+}
+
+@MainActor
 @Test func modelMergesArtifactsClearsResultsAndScansProjects() async throws {
     let root = try TestSupport.temporaryDirectory()
     defer { TestSupport.cleanup(root) }

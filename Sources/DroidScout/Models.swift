@@ -353,6 +353,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     var packagePollingInterval: Double
     var confidenceThreshold: DeployConfidence
     var backgroundUpdateChecks: Bool
+    var launchAtLogin: Bool
     var hiddenDeviceIdentities: [String]
 
     static let defaults = AppSettings(
@@ -365,6 +366,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         packagePollingInterval: 12,
         confidenceThreshold: .medium,
         backgroundUpdateChecks: true,
+        launchAtLogin: false,
         hiddenDeviceIdentities: []
     )
 
@@ -378,6 +380,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         packagePollingInterval: Double,
         confidenceThreshold: DeployConfidence,
         backgroundUpdateChecks: Bool,
+        launchAtLogin: Bool,
         hiddenDeviceIdentities: [String]
     ) {
         self.customADBPath = customADBPath
@@ -389,6 +392,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.packagePollingInterval = packagePollingInterval
         self.confidenceThreshold = confidenceThreshold
         self.backgroundUpdateChecks = backgroundUpdateChecks
+        self.launchAtLogin = launchAtLogin
         self.hiddenDeviceIdentities = hiddenDeviceIdentities
     }
 
@@ -403,6 +407,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         packagePollingInterval = try container.decodeIfPresent(Double.self, forKey: .packagePollingInterval) ?? Self.defaults.packagePollingInterval
         confidenceThreshold = try container.decodeIfPresent(DeployConfidence.self, forKey: .confidenceThreshold) ?? Self.defaults.confidenceThreshold
         backgroundUpdateChecks = try container.decodeIfPresent(Bool.self, forKey: .backgroundUpdateChecks) ?? Self.defaults.backgroundUpdateChecks
+        launchAtLogin = try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? Self.defaults.launchAtLogin
         hiddenDeviceIdentities = try container.decodeIfPresent([String].self, forKey: .hiddenDeviceIdentities) ?? Self.defaults.hiddenDeviceIdentities
     }
 }

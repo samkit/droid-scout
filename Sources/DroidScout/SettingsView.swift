@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 public enum SettingsTab: String, CaseIterable, Identifiable {
-    case tools
+    case general
     case projects
     case logs
     case updates
@@ -15,16 +15,16 @@ public struct DroidScoutSettingsView: View {
     @ObservedObject var model: DroidScoutModel
     @State private var selectedTab: SettingsTab
 
-    public init(model: DroidScoutModel, initialTab: SettingsTab = .tools) {
+    public init(model: DroidScoutModel, initialTab: SettingsTab = .general) {
         self.model = model
         _selectedTab = State(initialValue: initialTab)
     }
 
     public var body: some View {
         TabView(selection: $selectedTab) {
-            DroidScoutSettingsPaneView(model: model, tab: .tools)
-            .tabItem { Label("Tools", systemImage: "wrench.and.screwdriver") }
-            .tag(SettingsTab.tools)
+            DroidScoutSettingsPaneView(model: model, tab: .general)
+            .tabItem { Label("General", systemImage: "gearshape") }
+            .tag(SettingsTab.general)
 
             DroidScoutSettingsPaneView(model: model, tab: .projects)
             .tabItem { Label("Projects", systemImage: "folder") }
@@ -54,8 +54,8 @@ struct DroidScoutSettingsPaneView: View {
     var body: some View {
         SettingsPane {
             switch tab {
-            case .tools:
-                adbSettings
+            case .general:
+                generalSettings
             case .projects:
                 projectSettings
             case .logs:
@@ -68,8 +68,20 @@ struct DroidScoutSettingsPaneView: View {
         }
     }
 
-    private var adbSettings: some View {
+    private var generalSettings: some View {
         VStack(alignment: .leading, spacing: 14) {
+            SettingsSection(title: "App") {
+                SettingsRow("Launch at login") {
+                    Toggle("", isOn: Binding {
+                        model.settings.launchAtLogin
+                    } set: { value in
+                        model.setLaunchAtLoginEnabled(value)
+                    })
+                    .labelsHidden()
+                    .help("Start Droid Scout automatically when you log in")
+                }
+            }
+
             SettingsSection(title: "ADB") {
                 SettingsRow("Detected path") {
                     Text(model.adbStatus.path ?? "Not found")

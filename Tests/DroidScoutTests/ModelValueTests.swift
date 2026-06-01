@@ -145,5 +145,6 @@ import Testing
     #expect(decoded.packagePollingInterval == AppSettings.defaults.packagePollingInterval)
     #expect(decoded.confidenceThreshold == .high)
     #expect(decoded.backgroundUpdateChecks)
+    #expect(!decoded.launchAtLogin)
     #expect(decoded.hiddenDeviceIdentities == [])
 }

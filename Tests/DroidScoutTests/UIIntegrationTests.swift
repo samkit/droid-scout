@@ -33,7 +33,7 @@ import Testing
     }
 
     let tabShell = RenderedWindow(
-        DroidScoutSettingsView(model: model, initialTab: .tools),
+        DroidScoutSettingsView(model: model, initialTab: .general),
         size: NSSize(width: 680, height: 500)
     )
     await tabShell.settle()
@@ -46,7 +46,7 @@ import Testing
     emptySettings.settings.watchedProjectPaths = []
     emptySettings.artifacts = []
     emptySettings.restartAvailable = false
-    for tab in [SettingsTab.tools, .projects, .updates] {
+    for tab in [SettingsTab.general, .projects, .updates] {
         let pane = RenderedWindow(
             DroidScoutSettingsPaneView(model: emptySettings, tab: tab)
                 .padding(20)
