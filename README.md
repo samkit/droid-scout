@@ -156,12 +156,12 @@ The Logs tab controls where log streams open, how long local log files are retai
 
 ---
 
-### Updates settings
+### About settings
 
-The Updates tab keeps update checks explicit and native, with a background-check toggle, manual check button, and release-source note for GitHub Releases.
+The About tab keeps app identity and update checks in one place, with a short app description, current version, GitHub repository link, X profile link, background-check toggle, and manual update check.
 
 <p align="center">
-  <img src="docs/assets/readme/settings-updates.png" alt="Droid Scout Updates settings tab with background checks enabled, a check for updates button, and GitHub Releases release-source text." width="792">
+  <img src="docs/assets/readme/settings-updates.png" alt="Droid Scout About settings tab with current version, links, background checks, and a check for updates button." width="792">
 </p>
 
 ---

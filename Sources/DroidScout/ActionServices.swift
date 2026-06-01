@@ -221,14 +221,101 @@ struct NotificationGate {
 
 @MainActor
 final class UpdateService {
+    struct Release: Equatable, Sendable {
+        var version: String
+        var url: URL
+    }
+
+    enum CheckResult: Equatable, Sendable {
+        case updateAvailable(Release)
+        case upToDate(currentVersion: String)
+        case noPublishedRelease
+        case failed(String)
+    }
+
     private let openHandler: @MainActor (URL) -> Void
+    private let currentVersionProvider: @MainActor () -> String
+    private let latestReleaseProvider: @MainActor () async throws -> Release?
 
     init(openHandler: @escaping @MainActor (URL) -> Void = { _ in }) {
         self.openHandler = openHandler
+        currentVersionProvider = { AppConstants.appVersion }
+        latestReleaseProvider = { try await Self.fetchLatestRelease() }
     }
 
-    func checkForUpdates() {
-        openHandler(AppConstants.githubReleasesURL)
+    init(
+        currentVersionProvider: @escaping @MainActor () -> String,
+        latestReleaseProvider: @escaping @MainActor () async throws -> Release?,
+        openHandler: @escaping @MainActor (URL) -> Void = { _ in }
+    ) {
+        self.openHandler = openHandler
+        self.currentVersionProvider = currentVersionProvider
+        self.latestReleaseProvider = latestReleaseProvider
+    }
+
+    func checkForUpdates() async -> CheckResult {
+        do {
+            guard let latestRelease = try await latestReleaseProvider() else {
+                return .noPublishedRelease
+            }
+
+            let currentVersion = currentVersionProvider()
+            guard Self.isVersion(latestRelease.version, newerThan: currentVersion) else {
+                return .upToDate(currentVersion: currentVersion)
+            }
+
+            openHandler(latestRelease.url)
+            return .updateAvailable(latestRelease)
+        } catch {
+            return .failed(error.localizedDescription)
+        }
+    }
+
+    private static func fetchLatestRelease() async throws -> Release? {
+        var request = URLRequest(url: AppConstants.githubLatestReleaseAPIURL)
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.setValue("DroidScout/\(AppConstants.appVersion)", forHTTPHeaderField: "User-Agent")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 404 {
+            return nil
+        }
+
+        let latestRelease = try JSONDecoder().decode(GitHubLatestRelease.self, from: data)
+        return Release(version: latestRelease.tagName, url: latestRelease.htmlURL)
+    }
+
+    private static func isVersion(_ candidate: String, newerThan current: String) -> Bool {
+        let candidateComponents = versionComponents(candidate)
+        let currentComponents = versionComponents(current)
+        let count = max(candidateComponents.count, currentComponents.count)
+
+        for index in 0..<count {
+            let candidateValue = index < candidateComponents.count ? candidateComponents[index] : 0
+            let currentValue = index < currentComponents.count ? currentComponents[index] : 0
+            if candidateValue != currentValue {
+                return candidateValue > currentValue
+            }
+        }
+
+        return false
+    }
+
+    private static func versionComponents(_ version: String) -> [Int] {
+        version
+            .trimmingCharacters(in: CharacterSet(charactersIn: "vV"))
+            .split { !$0.isNumber }
+            .compactMap { Int($0) }
+    }
+
+    private struct GitHubLatestRelease: Decodable {
+        var tagName: String
+        var htmlURL: URL
+
+        enum CodingKeys: String, CodingKey {
+            case tagName = "tag_name"
+            case htmlURL = "html_url"
+        }
     }
 }
 

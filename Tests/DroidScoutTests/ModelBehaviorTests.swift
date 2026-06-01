@@ -366,8 +366,11 @@ import Testing
     logManager.stopAll()
     logManager.revealLogsFolder()
 
-    let updateService = UpdateService()
-    updateService.checkForUpdates()
+    let updateService = UpdateService(
+        currentVersionProvider: { "0.1.7" },
+        latestReleaseProvider: { nil }
+    )
+    _ = await updateService.checkForUpdates()
 
     let store = LocalStore(
         supportURL: root.appendingPathComponent("Support", isDirectory: true),
@@ -377,7 +380,7 @@ import Testing
         store: store,
         notificationManager: AppNotificationManager(),
         logSessionManager: LogSessionManager(logsURL: logs),
-        updateService: UpdateService()
+        updateService: updateService
     )
     model.chooseADB()
     model.addProjectFolder()
@@ -511,6 +514,38 @@ import Testing
 }
 
 @MainActor
+@Test func updateCheckReportsWhenCurrentVersionIsLatest() async throws {
+    let root = try TestSupport.temporaryDirectory()
+    defer { TestSupport.cleanup(root) }
+
+    var openedUpdates: [URL] = []
+    let releaseURL = URL(string: "https://github.com/samkit/droid-scout/releases/tag/v0.1.7")!
+    let updateService = UpdateService(
+        currentVersionProvider: { "0.1.7" },
+        latestReleaseProvider: {
+            UpdateService.Release(version: "v0.1.7", url: releaseURL)
+        },
+        openHandler: { openedUpdates.append($0) }
+    )
+    let model = DroidScoutModel(
+        store: LocalStore(
+            supportURL: root.appendingPathComponent("Support", isDirectory: true),
+            logsURL: root.appendingPathComponent("Logs", isDirectory: true)
+        ),
+        updateService: updateService
+    )
+
+    model.checkForUpdates()
+
+    let updateLogged = await waitUntil(timeout: 1) {
+        model.activities.first?.title == "Droid Scout is up to date"
+    }
+    #expect(updateLogged)
+    #expect(openedUpdates.isEmpty)
+    #expect(model.updateCheckMessage == "Droid Scout is up to date. Version 0.1.7 is the latest release.")
+}
+
+@MainActor
 @Test func modelPanelHelpersLogsPackageChangesAndInjectedAppActionsUseRealBoundaries() async throws {
     guard ProcessInfo.processInfo.environment["DROID_SCOUT_MODEL_BOUNDARY_TESTS"] == "1" else {
         return
@@ -543,7 +578,14 @@ import Testing
         requestAuthorizationHandler: { authorizationRequests += 1 },
         deliverNotification: { title, body in deliveredNotifications.append((title, body)) }
     )
-    let updateService = UpdateService { openedUpdates.append($0) }
+    let releaseURL = URL(string: "https://github.com/samkit/droid-scout/releases/tag/v0.1.8")!
+    let updateService = UpdateService(
+        currentVersionProvider: { "0.1.7" },
+        latestReleaseProvider: {
+            UpdateService.Release(version: "v0.1.8", url: releaseURL)
+        },
+        openHandler: { openedUpdates.append($0) }
+    )
     let model = DroidScoutModel(
         store: store,
         notificationManager: notificationManager,
@@ -673,8 +715,12 @@ import Testing
     model.revealLogs()
     #expect(revealedLogs.count == 1)
     model.checkForUpdates()
-    #expect(openedUpdates == [AppConstants.githubReleasesURL])
-    #expect(model.activities.first?.title == "Checking for updates")
+    let updateLogged = await waitUntil(timeout: 1) {
+        model.activities.first?.title == "Update available"
+    }
+    #expect(updateLogged)
+    #expect(openedUpdates == [releaseURL])
+    #expect(model.updateCheckMessage == "Droid Scout v0.1.8 is available.")
     model.exportDiagnostics()
     #expect(revealedDiagnostics.count == 1)
     #expect(model.activities.first?.title == "Diagnostics exported")

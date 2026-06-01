@@ -46,7 +46,7 @@ import Testing
     emptySettings.settings.watchedProjectPaths = []
     emptySettings.artifacts = []
     emptySettings.restartAvailable = false
-    for tab in [SettingsTab.general, .projects, .updates] {
+    for tab in [SettingsTab.general, .projects, .about] {
         let pane = RenderedWindow(
             DroidScoutSettingsPaneView(model: emptySettings, tab: tab)
                 .padding(20)
@@ -538,7 +538,10 @@ private func makePopulatedUIModel(root: URL) -> DroidScoutModel {
             openLogHandler: { _, _ in },
             revealLogsHandler: { _ in }
         ),
-        updateService: UpdateService { _ in },
+        updateService: UpdateService(
+            currentVersionProvider: { "0.1.7" },
+            latestReleaseProvider: { nil }
+        ),
         chooseADBURLProvider: { chosenADB },
         projectFolderURLsProvider: { [addedProject] },
         installAPKURLsProvider: { [chosenAPK] },

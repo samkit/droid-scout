@@ -13,6 +13,7 @@ public final class DroidScoutModel: ObservableObject {
     @Published var activeLogSessions: [LogSessionManager.Session] = []
     @Published var activeScreenRecordings: [String: ScreenRecordManager.Session] = [:]
     @Published var restartAvailable = false
+    @Published var updateCheckMessage: String?
     @Published var isRefreshingDevices = false
     @Published var isRestartingADBServer = false
     @Published var isPairingDevice = false
@@ -596,8 +597,46 @@ public final class DroidScoutModel: ObservableObject {
     }
 
     func checkForUpdates() {
-        updateService.checkForUpdates()
-        recordActivity(kind: .update, title: "Checking for updates", detail: "Opened GitHub Releases.", success: true)
+        updateCheckMessage = "Checking GitHub Releases..."
+        recordActivity(kind: .update, title: "Checking for updates", detail: "Checking GitHub Releases.", success: nil)
+        Task { [weak self] in
+            guard let self else { return }
+            let result = await updateService.checkForUpdates()
+            switch result {
+            case let .updateAvailable(release):
+                updateCheckMessage = "Droid Scout \(release.version) is available."
+                recordActivity(
+                    kind: .update,
+                    title: "Update available",
+                    detail: "Droid Scout \(release.version) is available.",
+                    success: true
+                )
+            case let .upToDate(currentVersion):
+                updateCheckMessage = "Droid Scout is up to date. Version \(currentVersion) is the latest release."
+                recordActivity(
+                    kind: .update,
+                    title: "Droid Scout is up to date",
+                    detail: "Version \(currentVersion) is the latest release.",
+                    success: true
+                )
+            case .noPublishedRelease:
+                updateCheckMessage = "No GitHub release is published yet."
+                recordActivity(
+                    kind: .update,
+                    title: "No published updates",
+                    detail: "No GitHub release is published yet.",
+                    success: true
+                )
+            case let .failed(message):
+                updateCheckMessage = "Update check failed: \(message)"
+                recordActivity(
+                    kind: .update,
+                    title: "Update check failed",
+                    detail: message,
+                    success: false
+                )
+            }
+        }
     }
 
     func restartToApplyUpdate() {

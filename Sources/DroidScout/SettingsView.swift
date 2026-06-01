@@ -5,8 +5,8 @@ public enum SettingsTab: String, CaseIterable, Identifiable {
     case general
     case projects
     case logs
-    case updates
     case advanced
+    case about
 
     public var id: String { rawValue }
 }
@@ -34,13 +34,13 @@ public struct DroidScoutSettingsView: View {
             .tabItem { Label("Logs", systemImage: "terminal") }
             .tag(SettingsTab.logs)
 
-            DroidScoutSettingsPaneView(model: model, tab: .updates)
-            .tabItem { Label("Updates", systemImage: "arrow.down.circle") }
-            .tag(SettingsTab.updates)
-
             DroidScoutSettingsPaneView(model: model, tab: .advanced)
             .tabItem { Label("Advanced", systemImage: "slider.horizontal.3") }
             .tag(SettingsTab.advanced)
+
+            DroidScoutSettingsPaneView(model: model, tab: .about)
+            .tabItem { Label("About", systemImage: "info.circle") }
+            .tag(SettingsTab.about)
         }
         .padding(20)
         .frame(width: 680, height: 500)
@@ -60,10 +60,10 @@ struct DroidScoutSettingsPaneView: View {
                 projectSettings
             case .logs:
                 logSettings
-            case .updates:
-                updateSettings
             case .advanced:
                 advancedSettings
+            case .about:
+                aboutSettings
             }
         }
     }
@@ -233,33 +233,60 @@ struct DroidScoutSettingsPaneView: View {
         }
     }
 
-    private var updateSettings: some View {
-        SettingsSection(title: "Updates") {
-            SettingsRow("Background checks") {
-                HStack(spacing: 12) {
-                    Toggle("", isOn: binding(\.backgroundUpdateChecks))
-                        .labelsHidden()
-                    Button("Check for Updates...", action: model.checkForUpdates)
-                    if model.restartAvailable {
-                        Button("Restart to Apply Update", action: model.restartToApplyUpdate)
-                    }
-                }
-            }
-
-            if model.restartAvailable {
-                SettingsRow("Installed update") {
-                    Text("A newer app bundle is installed. Restart Droid Scout to switch to it.")
-                        .font(.caption)
+    private var aboutSettings: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SettingsSection(title: "About") {
+                SettingsRow("Droid Scout") {
+                    Text(AppConstants.appDescription)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+
+                SettingsRow("Current version") {
+                    Text("v\(AppConstants.appVersion)")
+                        .textSelection(.enabled)
+                }
+
+                SettingsRow("GitHub") {
+                    Link(AppConstants.githubRepoURL.absoluteString, destination: AppConstants.githubRepoURL)
+                }
+
+                SettingsRow("X") {
+                    Link("@samkit__", destination: AppConstants.xProfileURL)
+                }
             }
 
-            SettingsRow("Release source") {
-                Text("GitHub Releases. Sparkle can be connected when signing and appcast infrastructure are added.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            SettingsSection(title: "Updates") {
+                SettingsRow("Background checks") {
+                    Toggle("", isOn: binding(\.backgroundUpdateChecks))
+                        .labelsHidden()
+                }
+
+                SettingsRow("") {
+                    HStack(spacing: 12) {
+                        Button("Check for Updates...", action: model.checkForUpdates)
+                        if model.restartAvailable {
+                            Button("Restart to Apply Update", action: model.restartToApplyUpdate)
+                        }
+                    }
+                }
+
+                if let message = model.updateCheckMessage {
+                    SettingsRow("Status") {
+                        Text(message)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                if model.restartAvailable {
+                    SettingsRow("Installed update") {
+                        Text("A newer app bundle is installed. Restart Droid Scout to switch to it.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
             }
         }
     }

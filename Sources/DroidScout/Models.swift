@@ -2,11 +2,14 @@ import Foundation
 
 public enum AppConstants {
     public static let appName = "Droid Scout"
+    static let appDescription = "Native macOS utility for Android developers who keep opening Terminal for the same adb chores."
     static let bundleIdentifier = "com.droidscout.app"
     static let applicationSupportFolder = "Droid Scout"
     static let logsFolder = "Droid Scout"
     static let githubReleasesURL = URL(string: "https://github.com/samkit/droid-scout/releases")!
+    static let githubLatestReleaseAPIURL = URL(string: "https://api.github.com/repos/samkit/droid-scout/releases/latest")!
     public static let githubRepoURL = URL(string: "https://github.com/samkit/droid-scout")!
+    static let xProfileURL = URL(string: "https://x.com/samkit__")!
 
     public static var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.4"
