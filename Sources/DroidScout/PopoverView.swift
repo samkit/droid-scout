@@ -4,10 +4,10 @@ import SwiftUI
 public struct DroidScoutPopoverView: View {
     @ObservedObject var model: DroidScoutModel
     @State private var isRecentActivityExpanded = false
-    @State private var isPairingPresented = false
     @State private var isHoveringVersion = false
     var openSettings: () -> Void
     var openInstallProgress: () -> Void
+    var openPairing: () -> Void
     var footerMenuPresenter: @MainActor (NSMenu, NSView) -> Void
     var deviceMenuPresenter: @MainActor (NSMenu, NSButton) -> Void
 
@@ -15,12 +15,14 @@ public struct DroidScoutPopoverView: View {
         model: DroidScoutModel,
         openSettings: @escaping () -> Void,
         openInstallProgress: @escaping () -> Void,
+        openPairing: @escaping () -> Void = {},
         footerMenuPresenter: @escaping @MainActor (NSMenu, NSView) -> Void = { _, _ in },
         deviceMenuPresenter: @escaping @MainActor (NSMenu, NSButton) -> Void = { _, _ in }
     ) {
         self.model = model
         self.openSettings = openSettings
         self.openInstallProgress = openInstallProgress
+        self.openPairing = openPairing
         self.footerMenuPresenter = footerMenuPresenter
         self.deviceMenuPresenter = deviceMenuPresenter
     }
@@ -47,9 +49,6 @@ public struct DroidScoutPopoverView: View {
         .background(ScrollViewConfigurator())
         .frame(width: 390)
         .background(PopoverMaterial())
-        .sheet(isPresented: $isPairingPresented) {
-            PairDeviceView(model: model)
-        }
     }
 
     private var header: some View {
@@ -222,7 +221,7 @@ public struct DroidScoutPopoverView: View {
                 model: model,
                 section: .top,
                 isRecentActivityExpanded: $isRecentActivityExpanded,
-                showPairing: { isPairingPresented = true },
+                showPairing: openPairing,
                 menuPresenter: footerMenuPresenter
             )
                 .frame(height: CGFloat((model.restartAvailable ? 3 : 2) * 28))
@@ -235,7 +234,7 @@ public struct DroidScoutPopoverView: View {
                 model: model,
                 section: .bottom,
                 isRecentActivityExpanded: $isRecentActivityExpanded,
-                showPairing: { isPairingPresented = true },
+                showPairing: openPairing,
                 menuPresenter: footerMenuPresenter
             )
                 .frame(height: 84)
@@ -549,26 +548,33 @@ private struct RefreshDevicesButton: View {
     }
 }
 
-private struct PairDeviceView: View {
+public struct DroidScoutPairingView: View {
     @ObservedObject var model: DroidScoutModel
-    @Environment(\.dismiss) private var dismiss
     @State private var address = ""
     @State private var pairingCode = ""
     @FocusState private var focusedField: Field?
+
+    public init(model: DroidScoutModel) {
+        self.model = model
+    }
 
     private enum Field {
         case address
         case pairingCode
     }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 8) {
                 Image(systemName: "wifi")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.secondary)
                 Text("Pair Android Device")
                     .font(.headline)
+                Spacer()
+                Text(statusText)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(statusColor)
             }
 
             VStack(alignment: .leading, spacing: 10) {
@@ -589,23 +595,103 @@ private struct PairDeviceView: View {
                 }
             }
 
-            HStack {
-                Spacer()
-                Button("Cancel") {
-                    dismiss()
+            pairingProgress
+
+            HStack(spacing: 10) {
+                Button("Pair Another") {
+                    model.clearPairingAttempt()
+                    address = ""
+                    pairingCode = ""
+                    focusedField = .address
                 }
+                .disabled(model.isPairingDevice)
+                Spacer()
                 Button(model.isPairingDevice ? "Pairing..." : "Pair") {
                     model.pairAndroidDevice(address: address, pairingCode: pairingCode)
-                    dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(model.isPairingDevice || !canSubmit)
             }
         }
-        .padding(18)
-        .frame(width: 360)
+        .padding(20)
+        .frame(width: 500, height: 300)
         .onAppear {
             focusedField = .address
+        }
+    }
+
+    @ViewBuilder
+    private var pairingProgress: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let attempt = model.pairingAttempt {
+                HStack(alignment: .center, spacing: 10) {
+                    Image(systemName: icon(for: attempt.status))
+                        .foregroundStyle(color(for: attempt.status))
+                        .frame(width: 18)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(attempt.address.isEmpty ? "Pairing request" : attempt.address)
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Text(attempt.completedAt ?? attempt.startedAt, style: .time)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Text(attempt.status.displayName)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(color(for: attempt.status))
+                }
+
+                if !attempt.status.isTerminal {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+
+                Text(attempt.detail)
+                    .font(.caption)
+                    .foregroundStyle(attempt.status == .failed ? .red : .secondary)
+                    .textSelection(.enabled)
+                    .lineLimit(4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Ready to pair")
+                        .font(.subheadline.weight(.semibold))
+                    Text("Enter the address and code shown by Android wireless debugging.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 100, alignment: .topLeading)
+        .background(Color(nsColor: .textBackgroundColor).opacity(0.55))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var statusText: String {
+        model.pairingAttempt?.status.displayName ?? "Idle"
+    }
+
+    private var statusColor: Color {
+        guard let status = model.pairingAttempt?.status else { return .secondary }
+        return color(for: status)
+    }
+
+    private func icon(for status: PairingStatus) -> String {
+        switch status {
+        case .running: "arrow.triangle.2.circlepath"
+        case .success: "checkmark.circle.fill"
+        case .failed: "xmark.octagon.fill"
+        }
+    }
+
+    private func color(for status: PairingStatus) -> Color {
+        switch status {
+        case .running: .accentColor
+        case .success: .green
+        case .failed: .red
         }
     }
 
@@ -617,7 +703,7 @@ private struct PairDeviceView: View {
 
 private struct PopoverMaterial: NSViewRepresentable {
     func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
+        let view = PassthroughVisualEffectView()
         view.material = .popover
         view.blendingMode = .behindWindow
         view.state = .active
@@ -633,7 +719,7 @@ private struct PopoverMaterial: NSViewRepresentable {
 
 struct ScrollViewConfigurator: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
-        let view = NSView(frame: .zero)
+        let view = PassthroughView(frame: .zero)
         DispatchQueue.main.async {
             configureEnclosingScrollView(from: view)
         }
@@ -664,6 +750,18 @@ struct ScrollViewConfigurator: NSViewRepresentable {
         scrollView.autohidesScrollers = true
         scrollView.verticalScroller?.alphaValue = 0.45
         scrollView.horizontalScroller?.alphaValue = 0.45
+    }
+}
+
+private final class PassthroughView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+}
+
+private final class PassthroughVisualEffectView: NSVisualEffectView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
     }
 }
 

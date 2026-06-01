@@ -263,10 +263,16 @@ import Testing
     #expect(restartCompleted)
 
     model.pairAndroidDevice(address: "192.168.1.10:37123", pairingCode: "123456")
+    #expect(model.isPairingDevice)
+    #expect(model.pairingAttempt?.status == .running)
+    #expect(model.pairingAttempt?.address == "192.168.1.10:37123")
     let pairingCompleted = await waitUntil(timeout: 3) {
-        model.activities.contains { $0.title == "Android device paired" }
+        model.activities.contains { $0.title == "Android device paired" } &&
+            model.pairingAttempt?.status == .success &&
+            !model.isPairingDevice
     }
     #expect(pairingCompleted)
+    #expect(model.pairingAttempt?.detail.contains("[code]") == true)
     #expect(model.activities.first { $0.title == "Android device paired" }?.detail == "Successfully paired to 192.168.1.10:37123 with code [code]")
 
     let failingADB = root.appendingPathComponent("adb-failing")

@@ -11,6 +11,7 @@ final class StatusBarController: NSObject {
     private let statusIcon: NSImage?
     private var settingsWindow: NSWindow?
     private var installProgressWindow: NSWindow?
+    private var pairingWindow: NSWindow?
     private var announcedActiveInstallIDs: Set<UUID> = []
     private var cancellables: Set<AnyCancellable> = []
     private var localMouseMonitor: Any?
@@ -56,6 +57,9 @@ final class StatusBarController: NSObject {
             },
             openInstallProgress: { [weak self] in
                 self?.showInstallProgress()
+            },
+            openPairing: { [weak self] in
+                self?.showPairing()
             },
             footerMenuPresenter: MacSystemActions.showFooterMenu,
             deviceMenuPresenter: MacSystemActions.showDeviceMenu
@@ -176,6 +180,28 @@ final class StatusBarController: NSObject {
         window.center()
         window.isReleasedWhenClosed = false
         installProgressWindow = window
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func showPairing() {
+        if let pairingWindow {
+            pairingWindow.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let window = ClosableWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
+            styleMask: [.titled, .closable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "\(AppConstants.appName) Pair Android Device"
+        window.contentView = NSHostingView(rootView: DroidScoutPairingView(model: model))
+        window.center()
+        window.isReleasedWhenClosed = false
+        pairingWindow = window
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }

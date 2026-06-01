@@ -312,6 +312,38 @@ public struct InstallResult: Identifiable, Codable, Hashable, Sendable {
     var completedAt: Date?
 }
 
+enum PairingStatus: String, Codable, Sendable {
+    case running
+    case success
+    case failed
+
+    var isTerminal: Bool {
+        switch self {
+        case .success, .failed:
+            return true
+        case .running:
+            return false
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .running: "Pairing"
+        case .success: "Paired"
+        case .failed: "Failed"
+        }
+    }
+}
+
+struct PairingAttempt: Identifiable, Codable, Hashable, Sendable {
+    var id: UUID
+    var address: String
+    var status: PairingStatus
+    var detail: String
+    var startedAt: Date
+    var completedAt: Date?
+}
+
 enum NotificationMode: String, Codable, CaseIterable, Identifiable, Sendable {
     case full
     case reduced

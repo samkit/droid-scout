@@ -94,6 +94,22 @@ import Testing
     await idleProgress.settle()
     #expect(idleProgress.distinctRenderedColorCount() > 8)
     idleProgress.close()
+
+    model.pairingAttempt = PairingAttempt(
+        id: UUID(),
+        address: "192.168.1.10:37123",
+        status: .running,
+        detail: "Running adb pair 192.168.1.10:37123. Keep the Android pairing screen open.",
+        startedAt: Date(),
+        completedAt: nil
+    )
+    let pairingProgress = RenderedWindow(
+        DroidScoutPairingView(model: model),
+        size: NSSize(width: 500, height: 300)
+    )
+    await pairingProgress.settle()
+    #expect(pairingProgress.distinctRenderedColorCount() > 8)
+    pairingProgress.close()
     await settleMacUI()
 }
 
@@ -109,11 +125,13 @@ import Testing
 
     var capturedMenu: NSMenu?
     var capturedMenuSource: NSView?
+    var pairingWindowOpened = false
     var expanded = false
     let footerTop = FooterMenuListView(
         model: model,
         section: .top,
         isRecentActivityExpanded: Binding(get: { expanded }, set: { expanded = $0 }),
+        showPairing: { pairingWindowOpened = true },
         menuPresenter: { menu, sourceView in
             capturedMenu = menu
             capturedMenuSource = sourceView
@@ -133,6 +151,8 @@ import Testing
     #expect(capturedMenu?.title == "Advanced")
     #expect(capturedMenuSource != nil)
     (capturedMenu?.items.first as? ClosureMenuItem)?.performHandler()
+    #expect(pairingWindowOpened)
+    (capturedMenu?.items.dropFirst(2).first as? ClosureMenuItem)?.performHandler()
     #expect(model.activities.contains { $0.title == "ADB restart unavailable" || $0.title == "Restarting ADB server" })
     topRows[2].mouseDown(with: mouseEvent(location: NSPoint(x: 4, y: 4)))
     #expect(expanded)

@@ -17,6 +17,7 @@ public final class DroidScoutModel: ObservableObject {
     @Published var isRefreshingDevices = false
     @Published var isRestartingADBServer = false
     @Published var isPairingDevice = false
+    @Published var pairingAttempt: PairingAttempt?
     @Published var launchingEmulatorAVDNames: Set<String> = []
     @Published public var settings: AppSettings {
         didSet {
@@ -317,25 +318,57 @@ public final class DroidScoutModel: ObservableObject {
 
     func pairAndroidDevice(address: String, pairingCode: String) {
         guard !isPairingDevice else { return }
+        let trimmedAddress = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedCode = pairingCode.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let adbClient else {
+            pairingAttempt = PairingAttempt(
+                id: UUID(),
+                address: trimmedAddress,
+                status: .failed,
+                detail: "ADB is not currently available.",
+                startedAt: Date(),
+                completedAt: Date()
+            )
             recordActivity(kind: .adb, title: "Pairing unavailable", detail: "ADB is not currently available.", success: false)
             return
         }
 
-        let trimmedAddress = address.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedCode = pairingCode.trimmingCharacters(in: .whitespacesAndNewlines)
         guard Self.isValidPairingAddress(trimmedAddress), !trimmedCode.isEmpty else {
+            pairingAttempt = PairingAttempt(
+                id: UUID(),
+                address: trimmedAddress,
+                status: .failed,
+                detail: "Enter the Android device pairing address and pairing code.",
+                startedAt: Date(),
+                completedAt: Date()
+            )
             recordActivity(kind: .adb, title: "Pairing details needed", detail: "Enter the Android device pairing address and pairing code.", success: false)
             return
         }
 
         isPairingDevice = true
+        pairingAttempt = PairingAttempt(
+            id: UUID(),
+            address: trimmedAddress,
+            status: .running,
+            detail: "Running adb pair \(trimmedAddress). Keep the Android pairing screen open.",
+            startedAt: Date(),
+            completedAt: nil
+        )
         recordActivity(kind: .adb, title: "Pairing Android device", detail: trimmedAddress, success: nil)
 
         Task {
             let result = await adbClient.pair(address: trimmedAddress, pairingCode: trimmedCode)
             let output = result.stderr.nilIfBlank ?? result.stdout.nilIfBlank
             let detail = Self.redactPairingCode(output ?? (result.succeeded ? "Device paired." : "Pairing failed."), pairingCode: trimmedCode)
+            pairingAttempt = PairingAttempt(
+                id: pairingAttempt?.id ?? UUID(),
+                address: trimmedAddress,
+                status: result.succeeded ? .success : .failed,
+                detail: detail,
+                startedAt: pairingAttempt?.startedAt ?? Date(),
+                completedAt: Date()
+            )
             recordActivity(
                 kind: .adb,
                 title: result.succeeded ? "Android device paired" : "Android pairing failed",
@@ -345,6 +378,11 @@ public final class DroidScoutModel: ObservableObject {
             await tracker.refresh()
             isPairingDevice = false
         }
+    }
+
+    func clearPairingAttempt() {
+        guard !isPairingDevice else { return }
+        pairingAttempt = nil
     }
 
     func chooseADB() {
