@@ -237,7 +237,7 @@ public struct DroidScoutPopoverView: View {
                 showPairing: openPairing,
                 menuPresenter: footerMenuPresenter
             )
-                .frame(height: 84)
+                .frame(height: CGFloat(2 * 28))
         }
         .animation(.easeInOut(duration: 0.18), value: isRecentActivityExpanded)
         .overlay(alignment: .top) {
@@ -308,7 +308,6 @@ struct FooterMenuListView: NSViewRepresentable {
             })
 
         case .bottom:
-            stackView.addArrangedSubview(row(title: "Check for Updates", action: model.checkForUpdates))
             stackView.addArrangedSubview(row(title: "Reveal Logs", action: model.revealLogs))
             stackView.addArrangedSubview(row(title: "Quit", action: model.quit))
         }

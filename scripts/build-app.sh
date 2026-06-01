@@ -4,10 +4,18 @@ set -euo pipefail
 CONFIGURATION="${1:-release}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="${ROOT_DIR}/.build/${CONFIGURATION}"
+SWIFTPM_CACHE_DIR="${BUILD_DIR}/swiftpm/cache"
+SWIFTPM_CONFIG_DIR="${BUILD_DIR}/swiftpm/configuration"
+SWIFTPM_SECURITY_DIR="${BUILD_DIR}/swiftpm/security"
 APP_PATH="${BUILD_DIR}/Droid Scout.app"
 
 cd "${ROOT_DIR}"
-swift build -c "${CONFIGURATION}"
+mkdir -p "${SWIFTPM_CACHE_DIR}" "${SWIFTPM_CONFIG_DIR}" "${SWIFTPM_SECURITY_DIR}"
+swift build -c "${CONFIGURATION}" \
+  --disable-sandbox \
+  --cache-path "${SWIFTPM_CACHE_DIR}" \
+  --config-path "${SWIFTPM_CONFIG_DIR}" \
+  --security-path "${SWIFTPM_SECURITY_DIR}"
 
 rm -rf "${APP_PATH}"
 mkdir -p "${APP_PATH}/Contents/MacOS" "${APP_PATH}/Contents/Resources"
