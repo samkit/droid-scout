@@ -164,46 +164,56 @@ public struct DroidScoutPopoverView: View {
             Text("Actions")
                 .font(.subheadline.weight(.semibold))
 
-            Grid(horizontalSpacing: 8, verticalSpacing: 8) {
-                GridRow {
-                    Button(action: model.installAPKFromMainAction) {
-                        Label("Install APK...", systemImage: "square.and.arrow.down")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .disabled(!model.adbStatus.isHealthy)
+            let actionColumns = [
+                GridItem(.flexible(), spacing: 8),
+                GridItem(.flexible(), spacing: 8)
+            ]
+            LazyVGrid(columns: actionColumns, spacing: 8) {
+                Button(action: model.installAPKFromMainAction) {
+                    Label("Install APK...", systemImage: "square.and.arrow.down")
+                }
+                .frame(maxWidth: .infinity, minHeight: 30)
+                .buttonStyle(.bordered)
+                .disabled(!model.adbStatus.isHealthy)
 
-                    Menu {
-                        if model.recentArtifacts.isEmpty {
-                            Text("No APKs to reinstall")
-                        } else {
-                            ForEach(model.recentArtifacts.prefix(8)) { artifact in
-                                Button {
-                                    model.reinstallRecent(artifact)
-                                } label: {
-                                    Text(artifact.reinstallMenuTitle)
-                                }
+                Menu {
+                    if model.recentArtifacts.isEmpty {
+                        Text("No APKs to reinstall")
+                    } else {
+                        ForEach(model.recentArtifacts.prefix(8)) { artifact in
+                            Button {
+                                model.reinstallRecent(artifact)
+                            } label: {
+                                Text(artifact.reinstallMenuTitle)
                             }
                         }
-                    } label: {
-                        Label("Reinstall Recent...", systemImage: "clock.arrow.circlepath")
-                            .frame(maxWidth: .infinity)
                     }
-                    .disabled(!model.adbStatus.isHealthy || model.recentArtifacts.isEmpty)
+                } label: {
+                    Label("Reinstall Recent...", systemImage: "clock.arrow.circlepath")
                 }
+                .frame(maxWidth: .infinity, minHeight: 30)
+                .menuStyle(.borderedButton)
+                .disabled(!model.adbStatus.isHealthy || model.recentArtifacts.isEmpty)
 
-                GridRow {
-                    Button(action: { model.startLogsForSelected() }) {
-                        Label("Start Logs", systemImage: "terminal")
-                            .frame(maxWidth: .infinity)
+                Menu {
+                    ForEach(availableLogTargets) { target in
+                        Button(target.displayName) {
+                            model.startLogsForSelected(target: target)
+                        }
                     }
-                    .disabled(model.selectedOnlineDevices.isEmpty)
-
-                    Button(action: model.clearLogcatForSelected) {
-                        Label("Clear Logcat", systemImage: "trash")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .disabled(model.selectedOnlineDevices.isEmpty)
+                } label: {
+                    Label("Start Logs", systemImage: "terminal")
                 }
+                .frame(maxWidth: .infinity, minHeight: 30)
+                .menuStyle(.borderedButton)
+                .disabled(model.selectedOnlineDevices.isEmpty)
+
+                Button(action: model.clearLogcatForSelected) {
+                    Label("Clear Logcat", systemImage: "trash")
+                }
+                .frame(maxWidth: .infinity, minHeight: 30)
+                .buttonStyle(.bordered)
+                .disabled(model.selectedOnlineDevices.isEmpty)
             }
 
             if !model.installResults.isEmpty {
@@ -213,6 +223,10 @@ public struct DroidScoutPopoverView: View {
                 }
             }
         }
+    }
+
+    private var availableLogTargets: [LogTarget] {
+        LogTarget.availableOnCurrentMac
     }
 
     private var footer: some View {
@@ -1000,14 +1014,9 @@ struct DeviceActionsMenuButton: NSViewRepresentable {
             let logStreamItem = NSMenuItem(title: "Open Log Stream", action: nil, keyEquivalent: "")
             logStreamItem.isEnabled = device.state == .online
             let logStreamMenu = NSMenu(title: "Open Log Stream")
-            logStreamMenu.addItem(menuItem("Terminal", action: #selector(openLogStreamTerminal)))
-            if NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.microsoft.VSCode") != nil {
-                logStreamMenu.addItem(menuItem("VS Code", action: #selector(openLogStreamVSCode)))
+            for target in LogTarget.availableOnCurrentMac {
+                logStreamMenu.addItem(menuItem(target.displayName, action: selector(for: target)))
             }
-            if NSWorkspace.shared.urlForApplication(withBundleIdentifier: "dev.zed.Zed") != nil {
-                logStreamMenu.addItem(menuItem("Zed", action: #selector(openLogStreamZed)))
-            }
-            logStreamMenu.addItem(menuItem("Default App", action: #selector(openLogStreamDefault)))
             logStreamItem.submenu = logStreamMenu
             menu.addItem(logStreamItem)
             menu.addItem(menuItem("Clear Logcat Buffer", action: #selector(clearLogcatBuffer), enabled: device.state == .online))
@@ -1141,6 +1150,40 @@ struct DeviceActionsMenuButton: NSViewRepresentable {
             item.target = self
             item.isEnabled = enabled
             return item
+        }
+
+        func selector(for target: LogTarget) -> Selector {
+            switch target {
+            case .terminal:
+                #selector(openLogStreamTerminal)
+            case .vscode:
+                #selector(openLogStreamVSCode)
+            case .zed:
+                #selector(openLogStreamZed)
+            case .defaultApp:
+                #selector(openLogStreamDefault)
+            }
+        }
+    }
+}
+
+private extension LogTarget {
+    @MainActor
+    static var availableOnCurrentMac: [LogTarget] {
+        allCases.filter(\.isAvailableOnCurrentMac)
+    }
+
+    @MainActor
+    var isAvailableOnCurrentMac: Bool {
+        switch self {
+        case .terminal:
+            return NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") != nil
+        case .vscode:
+            return NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.microsoft.VSCode") != nil
+        case .zed:
+            return NSWorkspace.shared.urlForApplication(withBundleIdentifier: "dev.zed.Zed") != nil
+        case .defaultApp:
+            return true
         }
     }
 }
