@@ -159,61 +159,182 @@ public struct DroidScoutPopoverView: View {
         }
     }
 
+    private struct ActionPopupItem {
+        let title: String
+        let action: () -> Void
+        let isEnabled: Bool
+    }
+
+    private struct ActionPopupButton: NSViewRepresentable {
+        let heading: String
+        let systemImage: String
+        let items: [ActionPopupItem]
+        let isEnabled: Bool
+        let emptyTitle: String
+        let accessibilityIdentifier: String
+        let accessibilityLabel: String
+        let width: CGFloat
+        let height: CGFloat
+
+        func makeNSView(context: Context) -> NSPopUpButton {
+            let button = NSPopUpButton(frame: .zero)
+            button.target = context.coordinator
+            button.action = #selector(Coordinator.itemSelected(_:))
+            button.bezelStyle = .rounded
+            button.alignment = .center
+            if let symbol = NSImage(systemSymbolName: systemImage, accessibilityDescription: nil) {
+                symbol.isTemplate = true
+                button.image = symbol
+                button.imagePosition = .imageLeft
+            }
+            button.setAccessibilityIdentifier(accessibilityIdentifier)
+            button.setAccessibilityLabel(accessibilityLabel)
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.setFrameSize(NSSize(width: width, height: height))
+            NSLayoutConstraint.activate([
+                button.widthAnchor.constraint(equalToConstant: width),
+                button.heightAnchor.constraint(equalToConstant: height)
+            ])
+            return button
+        }
+
+        func updateNSView(_ button: NSPopUpButton, context: Context) {
+            context.coordinator.parent = self
+            if let menu = button.menu {
+                menu.removeAllItems()
+            } else {
+                button.menu = NSMenu()
+            }
+            button.isEnabled = isEnabled
+            button.setAccessibilityIdentifier(accessibilityIdentifier)
+            button.setAccessibilityLabel(accessibilityLabel)
+            button.setFrameSize(NSSize(width: width, height: height))
+            let menu = button.menu!
+
+            let placeholder = NSMenuItem(title: heading, action: nil, keyEquivalent: "")
+            placeholder.isEnabled = false
+            menu.addItem(placeholder)
+
+            if isEnabled && !items.isEmpty {
+                for (index, item) in items.enumerated() {
+                    let menuItem = NSMenuItem(
+                        title: item.title,
+                        action: nil,
+                        keyEquivalent: ""
+                    )
+                    menuItem.isEnabled = item.isEnabled
+                    menuItem.tag = index
+                    button.menu?.addItem(menuItem)
+                }
+                button.selectItem(at: 0)
+            } else {
+                let emptyItem = NSMenuItem(title: emptyTitle, action: nil, keyEquivalent: "")
+                emptyItem.isEnabled = false
+                button.menu?.addItem(emptyItem)
+            }
+            resetSelection(button)
+        }
+
+        private func resetSelection(_ button: NSPopUpButton) {
+            if button.numberOfItems >= 1 {
+                button.selectItem(at: 0)
+            }
+        }
+
+        func makeCoordinator() -> Coordinator {
+            Coordinator(self)
+        }
+
+        final class Coordinator: NSObject {
+            var parent: ActionPopupButton
+            init(_ parent: ActionPopupButton) {
+                self.parent = parent
+            }
+
+            @MainActor
+            @objc func itemSelected(_ sender: NSPopUpButton) {
+                let selectedIndex = sender.indexOfSelectedItem - 1
+                guard parent.isEnabled else { return }
+                guard selectedIndex >= 0, selectedIndex < parent.items.count else {
+                    sender.selectItem(at: 0)
+                    return
+                }
+                guard parent.items[selectedIndex].isEnabled else { return }
+                parent.items[selectedIndex].action()
+                sender.selectItem(at: 0)
+            }
+        }
+    }
+
     private var actionsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Actions")
                 .font(.subheadline.weight(.semibold))
 
-            let actionColumns = [
-                GridItem(.flexible(), spacing: 8),
-                GridItem(.flexible(), spacing: 8)
-            ]
-            LazyVGrid(columns: actionColumns, spacing: 8) {
+            let actionSpacing: CGFloat = 8
+            let buttonHeight: CGFloat = 30
+            let buttonWidth: CGFloat = (390 - 28 - actionSpacing) / 2
+
+            HStack(spacing: actionSpacing) {
                 Button(action: model.installAPKFromMainAction) {
                     Label("Install APK...", systemImage: "square.and.arrow.down")
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity)
                 }
-                .frame(maxWidth: .infinity, minHeight: 30)
                 .buttonStyle(.bordered)
+                .frame(width: buttonWidth, height: buttonHeight)
                 .disabled(!model.adbStatus.isHealthy)
+                .accessibilityIdentifier("actions.installApk")
+                .accessibilityLabel("actions.installApk")
 
-                Menu {
-                    if model.recentArtifacts.isEmpty {
-                        Text("No APKs to reinstall")
-                    } else {
-                        ForEach(model.recentArtifacts.prefix(8)) { artifact in
-                            Button {
-                                model.reinstallRecent(artifact)
-                            } label: {
-                                Text(artifact.reinstallMenuTitle)
-                            }
-                        }
-                    }
-                } label: {
-                    Label("Reinstall Recent...", systemImage: "clock.arrow.circlepath")
-                }
-                .frame(maxWidth: .infinity, minHeight: 30)
-                .menuStyle(.borderedButton)
-                .disabled(!model.adbStatus.isHealthy || model.recentArtifacts.isEmpty)
+                ActionPopupButton(
+                    heading: "Reinstall Recent...",
+                    systemImage: "clock.arrow.circlepath",
+                    items: model.recentArtifacts.prefix(8).map { artifact in
+                        ActionPopupItem(
+                            title: artifact.reinstallMenuTitle,
+                            action: { model.reinstallRecent(artifact) },
+                            isEnabled: true
+                        )
+                    },
+                    isEnabled: model.adbStatus.isHealthy && !model.recentArtifacts.isEmpty,
+                    emptyTitle: "No APKs to reinstall",
+                    accessibilityIdentifier: "actions.reinstallRecent",
+                    accessibilityLabel: "actions.reinstallRecent",
+                    width: buttonWidth,
+                    height: buttonHeight
+                )
+            }
 
-                Menu {
-                    ForEach(availableLogTargets) { target in
-                        Button(target.displayName) {
-                            model.startLogsForSelected(target: target)
-                        }
-                    }
-                } label: {
-                    Label("Start Logs", systemImage: "terminal")
-                }
-                .frame(maxWidth: .infinity, minHeight: 30)
-                .menuStyle(.borderedButton)
-                .disabled(model.selectedOnlineDevices.isEmpty)
+            HStack(spacing: actionSpacing) {
+                ActionPopupButton(
+                    heading: "Start Logs",
+                    systemImage: "terminal",
+                    items: availableLogTargets.map { target in
+                        ActionPopupItem(
+                            title: target.displayName,
+                            action: { model.startLogsForSelected(target: target) },
+                            isEnabled: true
+                        )
+                    },
+                    isEnabled: !model.selectedOnlineDevices.isEmpty,
+                    emptyTitle: "No Log targets",
+                    accessibilityIdentifier: "actions.startLogs",
+                    accessibilityLabel: "actions.startLogs",
+                    width: buttonWidth,
+                    height: buttonHeight
+                )
 
                 Button(action: model.clearLogcatForSelected) {
                     Label("Clear Logcat", systemImage: "trash")
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity)
                 }
-                .frame(maxWidth: .infinity, minHeight: 30)
                 .buttonStyle(.bordered)
+                .frame(width: buttonWidth, height: buttonHeight)
                 .disabled(model.selectedOnlineDevices.isEmpty)
+                .accessibilityIdentifier("actions.clearLogcat")
+                .accessibilityLabel("actions.clearLogcat")
             }
 
             if !model.installResults.isEmpty {
@@ -225,6 +346,7 @@ public struct DroidScoutPopoverView: View {
         }
     }
 
+    @MainActor
     private var availableLogTargets: [LogTarget] {
         LogTarget.availableOnCurrentMac
     }

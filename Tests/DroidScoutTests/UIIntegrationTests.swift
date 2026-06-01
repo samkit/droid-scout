@@ -424,9 +424,55 @@ private func verifyStatusBarPresentationReflectsDeviceAndADBState() {
 }
 
 @MainActor
+@Test func popoverActionsUseEqualWidthButtons() async throws {
+    guard ProcessInfo.processInfo.environment["DROID_SCOUT_UI_TESTS"] == "1" else {
+        return
+    }
+
+    let root = try TestSupport.temporaryDirectory()
+    defer { TestSupport.cleanup(root) }
+    let model = makePopulatedUIModel(root: root)
+
+    let popover = RenderedWindow(
+        DroidScoutPopoverView(
+            model: model,
+            openSettings: {},
+            openInstallProgress: {}
+        ),
+        size: NSSize(width: 390, height: 560)
+    )
+    await popover.settle()
+
+    let actionYThreshold = popover.bounds.height * 0.66
+    let actionButtons = popover.views(of: NSView.self).filter { control in
+        let frame = control.frame
+        let typeName = String(describing: type(of: control))
+        let widthInRange = frame.width >= 160 && frame.width <= 260
+        let heightInRange = frame.height >= 24 && frame.height <= 42
+        let nearBottomArea = frame.minY >= actionYThreshold
+        let isLikelyControl = typeName.contains("Button") || typeName.contains("ViewProxy")
+        return widthInRange && heightInRange && nearBottomArea && isLikelyControl
+    }
+
+    #expect(actionButtons.count == 4)
+    let selectedActionButtons = actionButtons
+
+    let widths = selectedActionButtons.map { $0.frame.width }
+    #expect(widths.allSatisfy { $0 > 0 })
+    if let minWidth = widths.min(), let maxWidth = widths.max() {
+        #expect((maxWidth - minWidth) < 1.0)
+    }
+    popover.close()
+}
+
+@MainActor
 private final class RenderedWindow {
     private let rootView: NSView
     private let window: NSWindow
+
+    var bounds: NSRect {
+        rootView.bounds
+    }
 
     init<Content: View>(_ view: Content, size: NSSize) {
         let hostingView = NSHostingView(rootView: view)
