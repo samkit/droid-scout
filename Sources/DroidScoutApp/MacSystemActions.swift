@@ -126,6 +126,15 @@ enum MacSystemActions {
     }
 
     private static func appBundleURLForRestart() -> URL? {
+        // Prefer the standard install location. This ensures that after a "fresh deployment"
+        // (scripts/build-app.sh + install to /Applications per AGENTS.md), Restart always
+        // targets the newly deployed bundle even if the current process was launched from
+        // a .build/ or other copy during development.
+        let installed = URL(fileURLWithPath: "/Applications/Droid Scout.app")
+        if FileManager.default.fileExists(atPath: installed.path(percentEncoded: false)),
+           installed.pathExtension == "app" {
+            return installed
+        }
         let bundleURL = Bundle.main.bundleURL
         guard bundleURL.pathExtension == "app" else { return nil }
         return bundleURL

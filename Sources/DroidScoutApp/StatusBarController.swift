@@ -7,11 +7,33 @@ import SwiftUI
 final class StatusBarController: NSObject {
     private let statusItem: NSStatusItem
     private let popover: NSPopover
+    private let popoverWidth: CGFloat = 390
     private let model: DroidScoutModel
     private let statusIcon: NSImage?
+    private lazy var popoverHostingController: NSHostingController<DroidScoutPopoverView> = {
+        NSHostingController(rootView: DroidScoutPopoverView(
+            model: model,
+            openSettings: { [weak self] in
+                self?.showSettings()
+            },
+            openInstallProgress: { [weak self] in
+                self?.showInstallProgress()
+            },
+            openPairing: { [weak self] in
+                self?.showPairing()
+            },
+            footerMenuPresenter: MacSystemActions.showFooterMenu,
+            deviceMenuPresenter: MacSystemActions.showDeviceMenu,
+            onContentHeightChange: { [weak self] height in
+                self?.handleContentHeightChange(height)
+            }
+        ))
+    }()
     private var settingsWindow: NSWindow?
     private var installProgressWindow: NSWindow?
     private var pairingWindow: NSWindow?
+    private var popoverHeight: CGFloat = 0
+    private var reportedPopoverContentHeight: CGFloat = 0
     private var announcedActiveInstallIDs: Set<UUID> = []
     private var cancellables: Set<AnyCancellable> = []
     private var localMouseMonitor: Any?
@@ -49,21 +71,8 @@ final class StatusBarController: NSObject {
     private func configurePopover() {
         popover.behavior = .transient
         popover.delegate = self
-        popover.contentSize = NSSize(width: 390, height: 560)
-        popover.contentViewController = NSHostingController(rootView: DroidScoutPopoverView(
-            model: model,
-            openSettings: { [weak self] in
-                self?.showSettings()
-            },
-            openInstallProgress: { [weak self] in
-                self?.showInstallProgress()
-            },
-            openPairing: { [weak self] in
-                self?.showPairing()
-            },
-            footerMenuPresenter: MacSystemActions.showFooterMenu,
-            deviceMenuPresenter: MacSystemActions.showDeviceMenu
-        ))
+        popover.contentViewController = popoverHostingController
+        popover.contentSize = NSSize(width: popoverWidth, height: 0)
     }
 
     private func bindModel() {
@@ -81,6 +90,15 @@ final class StatusBarController: NSObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] results in
                 self?.handleInstallResultsChanged(results)
+            }
+            .store(in: &cancellables)
+
+        model.objectWillChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                DispatchQueue.main.async {
+                    self?.resizePopoverToFitContent()
+                }
             }
             .store(in: &cancellables)
     }
@@ -101,6 +119,7 @@ final class StatusBarController: NSObject {
         } else {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
+            resizePopoverToFitContent()
             installOutsideClickMonitors()
         }
     }
@@ -130,6 +149,44 @@ final class StatusBarController: NSObject {
             NSEvent.removeMonitor(globalMouseMonitor)
             self.globalMouseMonitor = nil
         }
+    }
+
+    private func resizePopoverToFitContent() {
+        guard popover.isShown else { return }
+        guard let contentView = popover.contentViewController?.view else { return }
+        contentView.layoutSubtreeIfNeeded()
+
+        let fittingHeight = reportedPopoverContentHeight
+        guard fittingHeight > 0 else {
+            DispatchQueue.main.async { [weak self] in
+                self?.resizePopoverToFitContent()
+            }
+            return
+        }
+        guard fittingHeight.isFinite else { return }
+
+        let maxHeight = maximumPopoverHeight()
+        let desiredHeight = min(fittingHeight, maxHeight)
+
+        if popoverHeight != desiredHeight {
+            popoverHeight = desiredHeight
+            popover.contentSize = NSSize(width: popoverWidth, height: desiredHeight)
+        }
+    }
+
+    private func handleContentHeightChange(_ measuredHeight: CGFloat) {
+        let roundedHeight = measuredHeight.rounded(.up)
+        if roundedHeight == reportedPopoverContentHeight { return }
+        reportedPopoverContentHeight = roundedHeight
+        resizePopoverToFitContent()
+    }
+
+    private func maximumPopoverHeight() -> CGFloat {
+        let activeScreen = statusItem.button?.window?.screen
+            ?? NSScreen.main
+            ?? NSScreen.screens.first
+        guard let screen = activeScreen else { return 560 }
+        return max(screen.visibleFrame.height * 0.5, 0)
     }
 
     private func isEventInsidePopover(_ event: NSEvent) -> Bool {
@@ -227,6 +284,12 @@ final class StatusBarController: NSObject {
 extension StatusBarController: NSPopoverDelegate {
     func popoverDidClose(_ notification: Notification) {
         removeOutsideClickMonitors()
+    }
+
+    func popoverDidShow(_ notification: Notification) {
+        DispatchQueue.main.async { [weak self] in
+            self?.resizePopoverToFitContent()
+        }
     }
 }
 

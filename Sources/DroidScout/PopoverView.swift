@@ -10,6 +10,7 @@ public struct DroidScoutPopoverView: View {
     var openPairing: () -> Void
     var footerMenuPresenter: @MainActor (NSMenu, NSView) -> Void
     var deviceMenuPresenter: @MainActor (NSMenu, NSButton) -> Void
+    var onContentHeightChange: @MainActor (CGFloat) -> Void
 
     public init(
         model: DroidScoutModel,
@@ -17,7 +18,8 @@ public struct DroidScoutPopoverView: View {
         openInstallProgress: @escaping () -> Void,
         openPairing: @escaping () -> Void = {},
         footerMenuPresenter: @escaping @MainActor (NSMenu, NSView) -> Void = { _, _ in },
-        deviceMenuPresenter: @escaping @MainActor (NSMenu, NSButton) -> Void = { _, _ in }
+        deviceMenuPresenter: @escaping @MainActor (NSMenu, NSButton) -> Void = { _, _ in },
+        onContentHeightChange: @escaping @MainActor (CGFloat) -> Void = { _ in }
     ) {
         self.model = model
         self.openSettings = openSettings
@@ -25,6 +27,7 @@ public struct DroidScoutPopoverView: View {
         self.openPairing = openPairing
         self.footerMenuPresenter = footerMenuPresenter
         self.deviceMenuPresenter = deviceMenuPresenter
+        self.onContentHeightChange = onContentHeightChange
     }
 
     public var body: some View {
@@ -43,9 +46,19 @@ public struct DroidScoutPopoverView: View {
             }
             .padding(.top, 4)
             .padding(.horizontal, 14)
-            .padding(.bottom, 14)
+            .padding(.bottom, 4)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
+            .background(
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: PopoverContentHeightPreference.self,
+                        value: proxy.size.height
+                    )
+                }
+            )
         }
+        .onPreferenceChange(PopoverContentHeightPreference.self, perform: onContentHeightChange)
         .background(ScrollViewConfigurator())
         .frame(width: 390)
         .background(PopoverMaterial())
@@ -383,6 +396,13 @@ public struct DroidScoutPopoverView: View {
         .overlay(alignment: .top) {
             Divider().opacity(0.45)
         }
+    }
+}
+
+private struct PopoverContentHeightPreference: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 

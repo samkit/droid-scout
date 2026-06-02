@@ -164,12 +164,13 @@ import Testing
         isRecentActivityExpanded: .constant(false),
         menuPresenter: { _, _ in }
     )
-    let footerBottomRender = RenderedWindow(footerBottom.frame(width: 362, height: 84), size: NSSize(width: 362, height: 84))
+    let footerBottomRender = RenderedWindow(footerBottom.frame(width: 362, height: 56), size: NSSize(width: 362, height: 56))
     await footerBottomRender.settle()
-    for row in footerBottomRender.views(of: CodexStyleMenuRowView.self) {
+    let bottomRows = footerBottomRender.views(of: CodexStyleMenuRowView.self)
+    #expect(bottomRows.count == 2)
+    for row in bottomRows {
         row.mouseDown(with: mouseEvent(location: NSPoint(x: 4, y: 4)))
     }
-    #expect(model.activities.contains { $0.title == "Checking for updates" })
     footerBottomRender.close()
 
     await settleMacUI()

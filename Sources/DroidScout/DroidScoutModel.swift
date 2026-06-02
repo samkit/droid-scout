@@ -710,7 +710,7 @@ public final class DroidScoutModel: ObservableObject {
 
     private func startRestartWatcher() {
         restartWatcherTask?.cancel()
-        restartWatcherTask = Task { [weak self] in
+        restartWatcherTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
                 self.refreshRestartAvailability()
@@ -720,14 +720,32 @@ public final class DroidScoutModel: ObservableObject {
     }
 
     private func refreshRestartAvailability() {
-        guard let launchExecutableModificationDate,
-              let currentExecutableModificationDate = Self.executableModificationDate()
-        else {
+        guard let launchDate = launchExecutableModificationDate else {
             restartAvailable = false
             return
         }
 
-        restartAvailable = currentExecutableModificationDate.timeIntervalSince(launchExecutableModificationDate) > 1
+        var candidates: [Date] = []
+        if let current = Self.executableModificationDate() {
+            candidates.append(current)
+        }
+
+        // Also watch the canonical install location. This makes the "Restart" button (and banner)
+        // reliably appear after a fresh deployment (build-app.sh + install to /Applications),
+        // even when the current process was launched from a .build/ copy or other dev location.
+        let installedExec = URL(fileURLWithPath: "/Applications/Droid Scout.app/Contents/MacOS/DroidScout")
+        let installedPath = installedExec.path(percentEncoded: false)
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: installedPath),
+           let mod = attrs[.modificationDate] as? Date {
+            candidates.append(mod)
+        }
+
+        guard let newest = candidates.max() else {
+            restartAvailable = false
+            return
+        }
+
+        restartAvailable = newest.timeIntervalSince(launchDate) > 1
     }
 
     private static func executableModificationDate() -> Date? {
