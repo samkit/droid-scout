@@ -342,6 +342,8 @@ struct PairingAttempt: Identifiable, Codable, Hashable, Sendable {
     var detail: String
     var startedAt: Date
     var completedAt: Date?
+    /// Populated only for QR code flows. Contains the exact `WIFI:T:ADB;...` string shown in the QR.
+    var qrPayload: String? = nil
 }
 
 enum NotificationMode: String, Codable, CaseIterable, Identifiable, Sendable {

@@ -91,6 +91,10 @@ final class ADBClient: @unchecked Sendable {
         await run(arguments: ["pair", address, pairingCode], timeout: 20)
     }
 
+    func mdnsServices() async -> CommandResult {
+        await run(arguments: ["mdns", "services"], timeout: 10)
+    }
+
     func takeScreenshot(serial: String, localURL: URL) async -> CommandResult {
         let remotePath = "/sdcard/droid_scout_screenshot.png"
         let capResult = await run(serial: serial, arguments: ["shell", "screencap", "-p", remotePath], timeout: 15)
@@ -246,6 +250,33 @@ enum ADBDeviceParser {
                     modelHint: modelHint,
                     transportHint: transportHint
                 )
+            }
+    }
+}
+
+/// Parses output from `adb mdns services`.
+/// Used by the QR pairing flow to discover the real IP:port advertised by the phone after it scans our QR.
+enum ADBMdnsParser {
+    struct Service: Equatable {
+        let name: String
+        let type: String
+        let address: String?
+    }
+
+    static func parseMdnsServices(_ output: String) -> [Service] {
+        output
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .dropFirst() // skip "List of discovered mdns services"
+            .compactMap { line -> Service? in
+                let tokens = line.split(separator: " ").map(String.init).filter { !$0.isEmpty }
+                guard tokens.count >= 3 else { return nil }
+
+                let name = tokens[0]
+                let type = tokens[1]
+                let address = tokens.last
+
+                // Only interested in pairing services for the QR flow; still return others for test completeness.
+                return Service(name: name, type: type, address: address)
             }
     }
 }

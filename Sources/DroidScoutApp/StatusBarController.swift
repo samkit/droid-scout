@@ -249,7 +249,7 @@ final class StatusBarController: NSObject {
         }
 
         let window = ClosableWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 530),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false

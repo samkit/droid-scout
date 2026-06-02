@@ -722,49 +722,146 @@ public struct DroidScoutPairingView: View {
         case pairingCode
     }
 
-    public var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(spacing: 8) {
-                Image(systemName: "wifi")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                Text("Pair Android Device")
-                    .font(.headline)
-                Spacer()
-                Text(statusText)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(statusColor)
-            }
+    /// Controls which pairing method is active in the window.
+    /// .qrCode is the default (modern wireless flow).
+    /// .pairingCode preserves the original IP:port + 6-digit code entry.
+    private enum PairingMode: String, CaseIterable, Identifiable {
+        case qrCode = "QR Code"
+        case pairingCode = "Pairing Code"
+        var id: String { rawValue }
+    }
 
-            VStack(alignment: .leading, spacing: 10) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Pairing address")
-                        .font(.caption.weight(.semibold))
-                    TextField("192.168.1.10:37123", text: $address)
-                        .textFieldStyle(.roundedBorder)
-                        .focused($focusedField, equals: .address)
+    @State private var pairingMode: PairingMode = .qrCode
+
+    @ViewBuilder
+    private var qrDisplaySection: some View {
+        if let payload = model.qrPairingPayload {
+            let qrImage = PairingQRGenerator.generateQRCodeImage(payload: payload, scale: 5)
+            VStack(alignment: .center, spacing: 10) {
+                if let qrImage {
+                    Image(nsImage: qrImage)
+                        .resizable()
+                        .interpolation(.none)
+                        .frame(width: 170, height: 170)
+                        .background(Color.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                        )
+                        .shadow(radius: 2)
+                } else {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.secondary.opacity(0.08))
+                        .frame(width: 170, height: 170)
+                        .overlay(Text("QR").foregroundStyle(.secondary))
                 }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Pairing code")
-                        .font(.caption.weight(.semibold))
-                    SecureField("123456", text: $pairingCode)
-                        .textFieldStyle(.roundedBorder)
-                        .focused($focusedField, equals: .pairingCode)
+                VStack(spacing: 2) {
+                    Text("Scan this QR code with your Android device")
+                        .font(.subheadline.weight(.semibold))
+                    Text("Settings → System → Developer options → Wireless debugging → \"Pair device with QR code\"")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, 8)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 4)
+        } else {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Preparing QR code…")
+                    .font(.subheadline.weight(.semibold))
+                Text("The QR code for wireless pairing will appear here.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var pairingHeader: some View {
+        HStack {
+            Picker(selection: $pairingMode) {
+                ForEach(PairingMode.allCases) { mode in
+                    Text(mode.rawValue).tag(mode)
+                }
+            } label: {
+                Text("Pairing method")
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(height: 28)
+
+            Spacer()
+
+            Text(statusText)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(statusColor)
+                .frame(height: 28, alignment: .center)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 10)
+        .padding(.bottom, 14)
+    }
+
+    private var pairingContent: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if pairingMode == .qrCode {
+                qrDisplaySection
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Pair Android Device")
+                        .font(.headline)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Pairing address")
+                            .font(.caption.weight(.semibold))
+                        TextField("192.168.1.10:37123", text: $address)
+                            .textFieldStyle(.roundedBorder)
+                            .focused($focusedField, equals: .address)
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Pairing code")
+                            .font(.caption.weight(.semibold))
+                        SecureField("123456", text: $pairingCode)
+                            .textFieldStyle(.roundedBorder)
+                            .focused($focusedField, equals: .pairingCode)
+                    }
                 }
             }
 
             pairingProgress
+        }
+        .padding(.horizontal, 20)
+    }
 
-            HStack(spacing: 10) {
-                Button("Pair Another") {
+    private var pairingButtonBar: some View {
+        HStack(spacing: 8) {
+            Button("Pair Another") {
+                model.clearPairingAttempt()
+                address = ""
+                pairingCode = ""
+                focusedField = .address
+                if pairingMode == .qrCode {
+                    model.startQRCodePairing()
+                }
+            }
+            .disabled(model.isPairingDevice)
+
+            if pairingMode == .qrCode {
+                Button("Regenerate") {
                     model.clearPairingAttempt()
-                    address = ""
-                    pairingCode = ""
-                    focusedField = .address
+                    model.startQRCodePairing()
                 }
                 .disabled(model.isPairingDevice)
-                Spacer()
+            }
+
+            Spacer()
+
+            if pairingMode == .pairingCode {
                 Button(model.isPairingDevice ? "Pairing..." : "Pair") {
                     model.pairAndroidDevice(address: address, pairingCode: pairingCode)
                 }
@@ -772,10 +869,39 @@ public struct DroidScoutPairingView: View {
                 .disabled(model.isPairingDevice || !canSubmit)
             }
         }
-        .padding(20)
-        .frame(width: 500, height: 300)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+    }
+
+    public var body: some View {
+        VStack(spacing: 0) {
+            pairingHeader
+
+            ScrollView {
+                pairingContent
+            }
+            .frame(maxHeight: .infinity)
+
+            pairingButtonBar
+        }
+        .frame(width: 500, height: 530)
         .onAppear {
-            focusedField = .address
+            if pairingMode == .qrCode && model.qrPairingPayload == nil && !model.isPairingDevice && model.pairingAttempt == nil {
+                model.startQRCodePairing()
+            }
+            if pairingMode == .pairingCode {
+                focusedField = .address
+            }
+        }
+        .onChange(of: pairingMode) { newMode in
+            if newMode == .pairingCode {
+                // Switching to manual: clear any QR state and reset local fields for a clean form
+                model.clearPairingAttempt()
+                address = ""
+                pairingCode = ""
+            } else if newMode == .qrCode && model.qrPairingPayload == nil && !model.isPairingDevice {
+                model.startQRCodePairing()
+            }
         }
     }
 
@@ -817,14 +943,20 @@ public struct DroidScoutPairingView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Ready to pair")
                         .font(.subheadline.weight(.semibold))
-                    Text("Enter the address and code shown by Android wireless debugging.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    if pairingMode == .qrCode {
+                        Text("A QR code will be shown above for wireless debugging pairing.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Enter the address and code shown by Android wireless debugging.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
         }
         .padding(12)
-        .frame(maxWidth: .infinity, minHeight: 100, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: 88, alignment: .topLeading)
         .background(Color(nsColor: .textBackgroundColor).opacity(0.55))
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }

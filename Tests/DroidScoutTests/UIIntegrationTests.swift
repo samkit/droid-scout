@@ -105,7 +105,7 @@ import Testing
     )
     let pairingProgress = RenderedWindow(
         DroidScoutPairingView(model: model),
-        size: NSSize(width: 500, height: 300)
+        size: NSSize(width: 500, height: 530)
     )
     await pairingProgress.settle()
     #expect(pairingProgress.distinctRenderedColorCount() > 8)

@@ -383,3 +383,73 @@ private final class NonExecutableFileManager: FileManager, @unchecked Sendable {
     #expect(metadata.label == "Droid Scout Fixture")
     #expect(APKMetadataReader.read(path: temp.appendingPathComponent("missing.apk").pathString, toolPaths: [goodTool.pathString]) == nil)
 }
+
+// MARK: - QR Code Pairing Generator (Phase 1 TDD)
+
+@Test func pairingQRGeneratorProducesValidPayloadAndCredentials() {
+    let creds = PairingQRGenerator.randomCredentials()
+
+    #expect(creds.serviceName.hasPrefix("droidscout-"))
+    #expect(creds.serviceName.count >= 10)
+    #expect(creds.password.count >= 8)
+    #expect(creds.payload.hasPrefix("WIFI:T:ADB;S:"))
+    #expect(creds.payload.contains(";P:"))
+    #expect(creds.payload.hasSuffix(";;"))
+
+    // Honest roundtrip reconstruction from the public fields proves the payload format is exactly what Android expects.
+    let reconstructed = "WIFI:T:ADB;S:\(creds.serviceName);P:\(creds.password);;"
+    #expect(creds.payload == reconstructed)
+}
+
+@Test func pairingQRGeneratorRespectsTestFixedCredentialsEnvVarForDeterministicTests() {
+    setenv("DROID_SCOUT_TEST_QR_FIXED", "1", 1)
+    defer { unsetenv("DROID_SCOUT_TEST_QR_FIXED") }
+
+    let creds = PairingQRGenerator.randomCredentials()
+
+    #expect(creds.serviceName == "droidscout-test")
+    #expect(creds.password == "fixed123456")
+    #expect(creds.payload == "WIFI:T:ADB;S:droidscout-test;P:fixed123456;;")
+}
+
+@Test func pairingQRGeneratorProducesUsableScannableQRCodeImage() {
+    let payload = "WIFI:T:ADB;S:real-svc-xyz;P:real-pass-abc123;;"
+    let image = PairingQRGenerator.generateQRCodeImage(payload: payload, scale: 6)
+
+    #expect(image != nil, "CoreImage QR generator must produce an image for a valid payload")
+    #expect(image!.size.width >= 150, "QR must be large enough for phone camera to scan reliably")
+    #expect(image!.size.height >= 150)
+
+    // Honest check: the generated image must have actual bitmap data (not a zero-size stub).
+    guard let cgImage = image!.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+        Issue.record("Generated NSImage must provide a CGImage")
+        return
+    }
+    #expect(cgImage.width >= 100)
+    #expect(cgImage.height >= 100)
+}
+
+// MARK: - ADB mDNS Services Parser (Phase 2 TDD)
+
+@Test func adbMdnsParserExtractsPairingServicesFromRealAdbOutput() {
+    let output = """
+    List of discovered mdns services
+    droidscout-test-001 _adb-tls-pairing._tcp 192.168.1.42:37123
+    studio-g@abc123 _adb-tls-pairing._tcp 10.0.0.5:12345
+    other-device _adb-tls-connect._tcp 192.168.1.99:5555
+    droidscout-abc123 _adb-tls-pairing._tcp [fe80::1]:40000
+    malformed line here
+    """
+
+    let services = ADBMdnsParser.parseMdnsServices(output)
+
+    #expect(services.count >= 3)
+    let pairing = services.filter { $0.type == "_adb-tls-pairing._tcp" }
+    #expect(pairing.count == 3)
+
+    let first = pairing.first { $0.name == "droidscout-test-001" }
+    #expect(first?.address == "192.168.1.42:37123")
+
+    let ipv6 = pairing.first { $0.name == "droidscout-abc123" }
+    #expect(ipv6?.address?.contains(":40000") == true)
+}

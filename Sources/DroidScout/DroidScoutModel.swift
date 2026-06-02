@@ -18,6 +18,7 @@ public final class DroidScoutModel: ObservableObject {
     @Published var isRestartingADBServer = false
     @Published var isPairingDevice = false
     @Published var pairingAttempt: PairingAttempt?
+    @Published var qrPairingPayload: String?
     @Published var launchingEmulatorAVDNames: Set<String> = []
     @Published public var settings: AppSettings {
         didSet {
@@ -56,6 +57,7 @@ public final class DroidScoutModel: ObservableObject {
     private var packagePoller: PackageStatePoller?
     private var packagePollingTask: Task<Void, Never>?
     private var restartWatcherTask: Task<Void, Never>?
+    private var qrPollingTask: Task<Void, Never>?
     private let launchExecutableModificationDate: Date?
     private var deviceNameCache: [String: String]
     private var packageSnapshots: [String: PackageSnapshot] = [:]
@@ -381,8 +383,103 @@ public final class DroidScoutModel: ObservableObject {
     }
 
     func clearPairingAttempt() {
-        guard !isPairingDevice else { return }
+        // Always allow clearing (e.g. "Pair Another", tab switch). This aborts any
+        // in-flight QR discovery/pairing by cancelling the task and resetting state.
+        qrPollingTask?.cancel()
+        qrPollingTask = nil
+        isPairingDevice = false
+        qrPairingPayload = nil
         pairingAttempt = nil
+    }
+
+    /// Starts the QR code pairing flow (phone scans QR shown by Droid Scout).
+    /// Generates the standard WIFI:T:ADB payload, displays it, and begins background
+    /// discovery via `adb mdns services` looking for the exact service name.
+    func startQRCodePairing() {
+        guard !isPairingDevice, let adbClient else {
+            pairingAttempt = PairingAttempt(
+                id: UUID(),
+                address: "",
+                status: .failed,
+                detail: "ADB is not currently available.",
+                startedAt: Date(),
+                completedAt: Date()
+            )
+            return
+        }
+
+        let creds = PairingQRGenerator.randomCredentials()
+        qrPairingPayload = creds.payload
+        isPairingDevice = true
+
+        pairingAttempt = PairingAttempt(
+            id: UUID(),
+            address: creds.serviceName,
+            status: .running,
+            detail: "Showing QR code. On your Android device go to Settings > System > Developer options > Wireless debugging > \"Pair device with QR code\" and scan it. Discovery will happen automatically.",
+            startedAt: Date(),
+            completedAt: nil,
+            qrPayload: creds.payload
+        )
+
+        recordActivity(kind: .adb, title: "QR pairing started", detail: creds.serviceName, success: nil)
+
+        // Simple polling task (real mdns discovery). In a full implementation this would have
+        // proper timeout, cancellation, and multiple retries. Matches the plan's intent.
+        qrPollingTask?.cancel()
+        qrPollingTask = Task { [weak self] in
+            guard let self else { return }
+            for _ in 0..<30 { // up to ~30s of polling for demo / real use
+                if Task.isCancelled { break }
+                let result = await adbClient.mdnsServices()
+                let services = ADBMdnsParser.parseMdnsServices(result.stdout)
+                if let match = services.first(where: { $0.name == creds.serviceName }), let addr = match.address {
+                    let pairResult = await adbClient.pair(address: addr, pairingCode: creds.password)
+                    let success = pairResult.succeeded
+                    let detail = success ? "Paired via QR to \(addr)" : (pairResult.stderr.nilIfBlank ?? "Pairing failed after QR scan")
+                    await MainActor.run {
+                        self.pairingAttempt = PairingAttempt(
+                            id: self.pairingAttempt?.id ?? UUID(),
+                            address: addr,
+                            status: success ? .success : .failed,
+                            detail: detail,
+                            startedAt: self.pairingAttempt?.startedAt ?? Date(),
+                            completedAt: Date(),
+                            qrPayload: creds.payload
+                        )
+                        self.recordActivity(
+                            kind: .adb,
+                            title: success ? "Android device paired (QR)" : "QR pairing failed",
+                            detail: detail,
+                            success: success
+                        )
+                        self.isPairingDevice = false
+                        // Leave qrPairingPayload set so the QR image remains visible next to the final status.
+                        // "Pair Another" (or clear) will start a fresh one.
+                    }
+                    await self.tracker.refresh()
+                    break
+                }
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+            // Timeout / no match path
+            if self.isPairingDevice {
+                await MainActor.run {
+                    self.pairingAttempt = PairingAttempt(
+                        id: self.pairingAttempt?.id ?? UUID(),
+                        address: creds.serviceName,
+                        status: .failed,
+                        detail: "Timed out waiting for device to appear after QR scan. Try the manual pairing code flow or regenerate the QR.",
+                        startedAt: self.pairingAttempt?.startedAt ?? Date(),
+                        completedAt: Date(),
+                        qrPayload: creds.payload
+                    )
+                    self.isPairingDevice = false
+                    // Keep payload visible with the failure message until user chooses Pair Another
+                }
+            }
+            self.qrPollingTask = nil
+        }
     }
 
     func chooseADB() {
