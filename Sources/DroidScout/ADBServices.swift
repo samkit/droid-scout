@@ -259,16 +259,27 @@ enum ADBDeviceParser {
 enum ADBMdnsParser {
     struct Service: Equatable {
         let name: String
+        let normalizedName: String
         let type: String
+        let normalizedType: String
         let address: String?
     }
 
     static func parseMdnsServices(_ output: String) -> [Service] {
-        output
+        let lines = output
             .split(separator: "\n", omittingEmptySubsequences: true)
-            .dropFirst() // skip "List of discovered mdns services"
+            .map(String.init)
+
+        let bodyLines: [String]
+        if lines.first?.hasPrefix("List of discovered mdns services") == true {
+            bodyLines = Array(lines.dropFirst())
+        } else {
+            bodyLines = lines
+        }
+
+        return bodyLines
             .compactMap { line -> Service? in
-                let tokens = line.split(separator: " ").map(String.init).filter { !$0.isEmpty }
+                let tokens = line.split(whereSeparator: { $0.isWhitespace }).map(String.init)
                 guard tokens.count >= 3 else { return nil }
 
                 let name = tokens[0]
@@ -276,9 +287,24 @@ enum ADBMdnsParser {
                 let address = tokens.last
 
                 // Only interested in pairing services for the QR flow; still return others for test completeness.
-                return Service(name: name, type: type, address: address)
+                return Service(name: name, normalizedName: normalizeServiceName(name), type: type, normalizedType: normalizeServiceType(type), address: address)
             }
     }
+
+    static func normalizeServiceName(_ name: String) -> String {
+        name
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+
+    static func normalizeServiceType(_ type: String) -> String {
+        type
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+    }
+
+    static let pairingMdnsType = "_adb-tls-pairing._tcp"
 }
 
 final class DeviceInfoService: @unchecked Sendable {

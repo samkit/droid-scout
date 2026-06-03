@@ -394,7 +394,8 @@ public final class DroidScoutModel: ObservableObject {
 
     /// Starts the QR code pairing flow (phone scans QR shown by Droid Scout).
     /// Generates the standard WIFI:T:ADB payload, displays it, and begins background
-    /// discovery via `adb mdns services` looking for the exact service name.
+    /// discovery via native Bonjour (NetServiceBrowser) for the _adb-tls-pairing service
+    /// advertised by the phone using the S: name from the QR. Uses adb only to run `pair`.
     func startQRCodePairing() {
         guard !isPairingDevice, let adbClient else {
             pairingAttempt = PairingAttempt(
@@ -416,7 +417,7 @@ public final class DroidScoutModel: ObservableObject {
             id: UUID(),
             address: creds.serviceName,
             status: .running,
-            detail: "Showing QR code. On your Android device go to Settings > System > Developer options > Wireless debugging > \"Pair device with QR code\" and scan it. Discovery will happen automatically.",
+            detail: "Showing QR code. On your Android device go to Settings > System > Developer options > Wireless debugging > \"Pair device with QR code\" and scan it. Waiting for the phone to advertise via Bonjour (mDNS) so we can pair...\n\nTip: If you see 'protocol fault' after scan, try the 'Restart ADB server' action in the main window first, ensure no VPN on Mac/phone, and that the phone is on a simple 2.4/5 GHz Wi-Fi (no Wi-Fi 7 MLO if applicable). Check 'Recent Activity' for the exact adb used.",
             startedAt: Date(),
             completedAt: nil,
             qrPayload: creds.payload
@@ -424,58 +425,157 @@ public final class DroidScoutModel: ObservableObject {
 
         recordActivity(kind: .adb, title: "QR pairing started", detail: creds.serviceName, success: nil)
 
-        // Simple polling task (real mdns discovery). In a full implementation this would have
-        // proper timeout, cancellation, and multiple retries. Matches the plan's intent.
+        // Use native Bonjour (NetServiceBrowser) discovery for the _adb-tls-pairing service.
+        // The phone, upon scanning the QR, advertises exactly the instance name from the S: field.
+        // This is more reliable and lower-latency than polling `adb mdns services` (which can
+        // have backend/format/timing issues on some macOS + adb combinations). We fall back to
+        // a short adb mdns poll only for diagnostics.
         qrPollingTask?.cancel()
         qrPollingTask = Task { [weak self] in
             guard let self else { return }
-            for _ in 0..<30 { // up to ~30s of polling for demo / real use
-                if Task.isCancelled { break }
-                let result = await adbClient.mdnsServices()
-                let services = ADBMdnsParser.parseMdnsServices(result.stdout)
-                if let match = services.first(where: { $0.name == creds.serviceName }), let addr = match.address {
-                    let pairResult = await adbClient.pair(address: addr, pairingCode: creds.password)
-                    let success = pairResult.succeeded
-                    let detail = success ? "Paired via QR to \(addr)" : (pairResult.stderr.nilIfBlank ?? "Pairing failed after QR scan")
+
+            // Kick off periodic diagnostic polls of adb's mDNS view (for debugging why native vs adb may differ).
+            // User will see in the pairing detail what `adb mdns services` reports over the first ~20s.
+            Task {
+                for i in 0..<10 {
+                    if Task.isCancelled { break }
+                    let check = await adbClient.run(arguments: ["mdns", "check"], timeout: 3)
+                    let list = await adbClient.mdnsServices()
+                    let parsed = ADBMdnsParser.parseMdnsServices(list.stdout)
+                    let pairingServices = parsed.filter { $0.normalizedType == ADBMdnsParser.pairingMdnsType }
+                    let pairingInfo = pairingServices.map { s in "\(s.name)@\(s.address ?? "?")" }.joined(separator: ", ")
                     await MainActor.run {
-                        self.pairingAttempt = PairingAttempt(
-                            id: self.pairingAttempt?.id ?? UUID(),
-                            address: addr,
-                            status: success ? .success : .failed,
-                            detail: detail,
-                            startedAt: self.pairingAttempt?.startedAt ?? Date(),
-                            completedAt: Date(),
-                            qrPayload: creds.payload
-                        )
+                        if var attempt = self.pairingAttempt, attempt.status == .running {
+                            let diag = "t+\(i*2)s mdns-check:\(check.stdout.nilIfBlank ?? "?") pairing:\(pairingInfo) "
+                            let base = attempt.detail
+                            // Keep detail from growing unbounded; replace last diag line if present
+                            if let range = base.range(of: "\n[adb-diag]") {
+                                attempt.detail = String(base[..<range.lowerBound]) + "\n[adb-diag] " + diag
+                            } else {
+                                attempt.detail = base + "\n[adb-diag] " + diag
+                            }
+                            self.pairingAttempt = attempt
+                        }
                         self.recordActivity(
                             kind: .adb,
-                            title: success ? "Android device paired (QR)" : "QR pairing failed",
-                            detail: detail,
-                            success: success
+                            title: "QR mDNS diag",
+                            detail: "t+\(i*2)s check:\(check.stdout.nilIfBlank ?? "?") pairing:\(pairingInfo)"
                         )
-                        self.isPairingDevice = false
-                        // Leave qrPairingPayload set so the QR image remains visible next to the final status.
-                        // "Pair Another" (or clear) will start a fresh one.
                     }
-                    await self.tracker.refresh()
-                    break
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
                 }
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
-            // Timeout / no match path
-            if self.isPairingDevice {
+
+            let discoverer = PairingMDNSDiscoverer()
+            let nativeDiscovered = await withTaskCancellationHandler {
+                await discoverer.discover(serviceName: creds.serviceName, timeout: 45)
+            } onCancel: {
+                discoverer.cancel()
+            }
+
+            if let d = nativeDiscovered {
                 await MainActor.run {
+                    self.recordActivity(
+                        kind: .adb,
+                        title: "QR native Bonjour match",
+                        detail: "target=\(creds.serviceName) bonjourInstance=\(d.instanceName) resolved=\(d.address)"
+                    )
+                }
+            }
+
+            var effectiveAddr: String? = nativeDiscovered?.address
+                if effectiveAddr == nil && self.isPairingDevice {
+                    // Fallback to direct `adb mdns services` polling (now that parser correctly handles tab-separated real output).
+                    // This helps if native Bonjour has env-specific issues but adb's mDNS stack sees the advertisement.
+                    for _ in 0..<15 {
+                        if Task.isCancelled || !self.isPairingDevice { break }
+                        let result = await adbClient.mdnsServices()
+                        let services = ADBMdnsParser.parseMdnsServices(result.stdout)
+                        if let match = services.first(where: { ($0.normalizedName == ADBMdnsParser.normalizeServiceName(creds.serviceName) || $0.normalizedName.localizedStandardContains(ADBMdnsParser.normalizeServiceName(creds.serviceName))) && $0.normalizedType == ADBMdnsParser.pairingMdnsType }), let a = match.address {
+                            effectiveAddr = a
+                            await MainActor.run {
+                                self.recordActivity(kind: .adb, title: "QR discovered via adb mdns fallback", detail: "\(creds.serviceName) at \(a)")
+                            }
+                        break
+                    }
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                }
+            }
+
+            if let addr = effectiveAddr {
+                // Log which adb we are using for the pair (path + version). This helps diagnose
+                // cases where an old adb binary is used that has trouble with QR-initiated pairing
+                // (while manual 6-digit pairing may still work).
+                let versionResult = await adbClient.run(arguments: ["version"], timeout: 5)
+                let adbVersionLine = versionResult.stdout.split(separator: "\n").first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "unknown"
+                await MainActor.run {
+                    self.recordActivity(
+                        kind: .adb,
+                        title: "QR using adb for pair",
+                        detail: "path=\(adbClient.adbPath) version=\(adbVersionLine) target=\(creds.serviceName) addr=\(addr)"
+                    )
+                }
+
+                // Small delay to let the phone fully start its pairing listener after mDNS advertisement.
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+
+                // Retry a few times on transient protocol/read errors (device may not be 100% ready).
+                var pairResult: CommandResult?
+                var success = false
+                for attempt in 1...3 {
+                    if attempt > 1 {
+                        try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    }
+                    pairResult = await adbClient.pair(address: addr, pairingCode: creds.password)
+                    success = pairResult!.succeeded
+                    if success { break }
+                    let err = (pairResult!.stderr + pairResult!.stdout).lowercased()
+                    if !err.contains("protocol fault") && !err.contains("couldn't read status") && !err.contains("undefined error") {
+                        break
+                    }
+                }
+                let finalPairResult = pairResult!
+                let err = finalPairResult.stderr.nilIfBlank ?? finalPairResult.stdout.nilIfBlank ?? "Pairing failed after QR scan"
+                let detail = success ? "Paired via QR to \(addr)" : "Failed pair to \(addr): \(err). This is often caused by an old adb binary (see the 'QR using adb for pair' activity log entry for the exact path+version used). Update via Android Studio SDK Manager or `brew upgrade android-platform-tools`, then restart ADB server from the main UI, or set a custom recent ADB path in Settings."
+                await MainActor.run {
+                    self.pairingAttempt = PairingAttempt(
+                        id: self.pairingAttempt?.id ?? UUID(),
+                        address: addr,
+                        status: success ? .success : .failed,
+                        detail: detail,
+                        startedAt: self.pairingAttempt?.startedAt ?? Date(),
+                        completedAt: Date(),
+                        qrPayload: creds.payload
+                    )
+                    self.recordActivity(
+                        kind: .adb,
+                        title: success ? "Android device paired (QR)" : "QR pairing failed",
+                        detail: detail,
+                        success: success
+                    )
+                    self.isPairingDevice = false
+                }
+                await self.tracker.refresh()
+            } else if self.isPairingDevice {
+                // Timeout / no match path (or cancelled)
+                await MainActor.run {
+                    let prev = self.pairingAttempt?.detail ?? ""
+                    let diagPart = if let range = prev.range(of: "\n[adb-diag]") {
+                        String(prev[range.lowerBound...])
+                    } else { "" }
+                    let reason = "Timed out waiting for device to appear after QR scan (no mDNS advertisement for \(creds.serviceName) seen via Bonjour or adb mdns). Ensure phone & Mac on same Wi-Fi (no VPN, AP isolation, iCloud Private Relay), try 'adb mdns check', or use manual pairing code."
+                    let finalDetail = diagPart.isEmpty ? reason : (prev + "\n\n" + reason)
                     self.pairingAttempt = PairingAttempt(
                         id: self.pairingAttempt?.id ?? UUID(),
                         address: creds.serviceName,
                         status: .failed,
-                        detail: "Timed out waiting for device to appear after QR scan. Try the manual pairing code flow or regenerate the QR.",
+                        detail: finalDetail,
                         startedAt: self.pairingAttempt?.startedAt ?? Date(),
                         completedAt: Date(),
                         qrPayload: creds.payload
                     )
                     self.isPairingDevice = false
-                    // Keep payload visible with the failure message until user chooses Pair Another
+                    self.recordActivity(kind: .adb, title: "QR pairing timed out", detail: "No advertisement found for \(creds.serviceName) (Bonjour + adb fallback exhausted). Check [adb-diag] lines above or in activity log.")
                 }
             }
             self.qrPollingTask = nil
