@@ -15,6 +15,7 @@ import Testing
     #expect(DeviceConnectionState(adbState: "offline") == .offline)
     #expect(DeviceConnectionState(adbState: "recovery") == .unknown)
     #expect(DeviceConnectionState.stopped.displayName == "stopped")
+    #expect(DeviceConnectionState.unknown.displayName == "unknown")
 
     let healthy = ADBAvailability.healthy(path: "/opt/adb", version: "Android Debug Bridge version 35")
     #expect(healthy.isHealthy)
@@ -123,6 +124,7 @@ import Testing
 
     #expect(InstallStatus.queued.displayName == "Queued")
     #expect(!InstallStatus.installing.isTerminal)
+    #expect(InstallStatus.installing.displayName == "Installing")
     #expect(InstallStatus.success.isTerminal)
     #expect(InstallStatus.failed.displayName == "Failed")
     #expect(InstallStatus.skipped.displayName == "Skipped")

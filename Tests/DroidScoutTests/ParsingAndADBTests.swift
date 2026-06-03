@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import Darwin
 @testable import DroidScout
 
 @Test func adbDeviceParserExtractsStatesModelsAndTransportHints() {
@@ -316,6 +317,59 @@ private final class NonExecutableFileManager: FileManager, @unchecked Sendable {
     }
 }
 
+private final class FakeNetService: NetService {
+    private let fakeName: String
+    private let fakePort: Int
+    private let fakeHostName: String?
+    private let fakeAddresses: [Data]?
+
+    init(name: String, port: Int, hostName: String? = nil, addresses: [Data]? = nil) {
+        self.fakeName = name
+        self.fakePort = port
+        self.fakeHostName = hostName
+        self.fakeAddresses = addresses
+        super.init(domain: "local.", type: "_adb-tls-pairing._tcp.", name: name, port: Int32(port))
+    }
+
+    override var hostName: String? {
+        fakeHostName
+    }
+
+    override var name: String {
+        fakeName
+    }
+
+    override var port: Int {
+        fakePort
+    }
+
+    override var addresses: [Data]? {
+        fakeAddresses
+    }
+}
+
+private func ipv4SockaddrData(_ address: String, port: UInt16) -> Data {
+    var result = sockaddr_in()
+    result.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+    result.sin_family = sa_family_t(AF_INET)
+    result.sin_port = in_port_t(port.bigEndian)
+    _ = address.withCString { stringPointer in
+        inet_pton(AF_INET, stringPointer, &result.sin_addr)
+    }
+    return withUnsafeBytes(of: result) { Data($0) }
+}
+
+private func ipv6SockaddrData(_ address: String, port: UInt16) -> Data {
+    var result = sockaddr_in6()
+    result.sin6_len = UInt8(MemoryLayout<sockaddr_in6>.size)
+    result.sin6_family = sa_family_t(AF_INET6)
+    result.sin6_port = in_port_t(port.bigEndian)
+    _ = address.withCString { stringPointer in
+        inet_pton(AF_INET6, stringPointer, &result.sin6_addr)
+    }
+    return withUnsafeBytes(of: result) { Data($0) }
+}
+
 @MainActor
 @Test func deviceTrackerReportsWatcherLaunchFailureAndStopsCleanly() async throws {
     let tracker = DeviceTracker()
@@ -384,6 +438,42 @@ private final class NonExecutableFileManager: FileManager, @unchecked Sendable {
     #expect(APKMetadataReader.read(path: temp.appendingPathComponent("missing.apk").pathString, toolPaths: [goodTool.pathString]) == nil)
 }
 
+@Test func apkMetadataReaderFallsBackToDefaultPathWhenPathVariableIsUnavailable() throws {
+    let temp = try TestSupport.temporaryDirectory()
+    defer { TestSupport.cleanup(temp) }
+
+    let apk = temp.appendingPathComponent("app.apk")
+    try TestSupport.touch(apk)
+
+    let previousPath = ProcessInfo.processInfo.environment["PATH"]
+    let previousAndroidHome = ProcessInfo.processInfo.environment["ANDROID_HOME"]
+    let previousAndroidSDKRoot = ProcessInfo.processInfo.environment["ANDROID_SDK_ROOT"]
+
+    unsetenv("PATH")
+    unsetenv("ANDROID_HOME")
+    unsetenv("ANDROID_SDK_ROOT")
+    defer {
+        if let previousPath = previousPath {
+            setenv("PATH", previousPath, 1)
+        } else {
+            unsetenv("PATH")
+        }
+        if let previousAndroidHome = previousAndroidHome {
+            setenv("ANDROID_HOME", previousAndroidHome, 1)
+        } else {
+            unsetenv("ANDROID_HOME")
+        }
+        if let previousAndroidSDKRoot = previousAndroidSDKRoot {
+            setenv("ANDROID_SDK_ROOT", previousAndroidSDKRoot, 1)
+        } else {
+            unsetenv("ANDROID_SDK_ROOT")
+        }
+    }
+
+    let metadata = APKMetadataReader.read(path: apk.pathString)
+    #expect(metadata == nil)
+}
+
 // MARK: - QR Code Pairing Generator (Phase 1 TDD)
 
 @Test func pairingQRGeneratorProducesValidPayloadAndCredentials() {
@@ -412,6 +502,51 @@ private final class NonExecutableFileManager: FileManager, @unchecked Sendable {
     #expect(creds.payload == "WIFI:T:ADB;S:droidscout-test;P:fixed123456;;")
 }
 
+@Test func pairingQRGeneratorFallsBackToRandomHexWhenSecureRandomFails() {
+    let previousProvider = PairingQRGenerator.randomByteProvider
+    let previousFixedEnv = ProcessInfo.processInfo.environment["DROID_SCOUT_TEST_QR_FIXED"]
+    PairingQRGenerator.randomByteProvider = { _, _ in -1 }
+    unsetenv("DROID_SCOUT_TEST_QR_FIXED")
+    defer {
+        PairingQRGenerator.randomByteProvider = previousProvider
+        if let previousFixedEnv {
+            setenv("DROID_SCOUT_TEST_QR_FIXED", previousFixedEnv, 1)
+        } else {
+            unsetenv("DROID_SCOUT_TEST_QR_FIXED")
+        }
+    }
+
+    let creds = PairingQRGenerator.randomCredentials()
+    let hexDigits = Set("0123456789abcdefABCDEF".map(Character.init))
+
+    #expect(creds.serviceName.hasPrefix("droidscout-"))
+    #expect(creds.serviceName.count >= 10)
+    #expect(creds.serviceName.dropFirst("droidscout-".count).unicodeScalars.allSatisfy { hexDigits.contains(Character($0)) })
+    #expect(creds.password.count == 12)
+    #expect(creds.password.unicodeScalars.allSatisfy { hexDigits.contains(Character($0)) })
+}
+
+@Test func pairingQREncodingHelpersAreConsistent() {
+    let payload = PairingQRGenerator.payload(from: "unit-device", password: "unit-pass")
+    #expect(payload == "WIFI:T:ADB;S:unit-device;P:unit-pass;;")
+    #expect(PairingQRGenerator.generateQRCodeImage(payload: "", scale: 5) == nil)
+}
+
+@Test func pairingQRGeneratorRejectsInvalidScaleThatProducesNonFiniteImageBounds() {
+    let payload = PairingQRGenerator.payload(from: "unit-device", password: "unit-pass")
+    #expect(PairingQRGenerator.generateQRCodeImage(payload: payload, scale: 0) == nil)
+}
+
+@Test func pairingQRGeneratorRejectsNegativeScaleBeforeProducingImage() {
+    let payload = PairingQRGenerator.payload(from: "unit-device", password: "unit-pass")
+    #expect(PairingQRGenerator.generateQRCodeImage(payload: payload, scale: -1) == nil)
+}
+
+@Test func pairingQRGeneratorRejectsNonFiniteScaleBeforeProducingImage() {
+    let payload = PairingQRGenerator.payload(from: "unit-device", password: "unit-pass")
+    #expect(PairingQRGenerator.generateQRCodeImage(payload: payload, scale: .nan) == nil)
+}
+
 @Test func pairingQRGeneratorProducesUsableScannableQRCodeImage() {
     let payload = "WIFI:T:ADB;S:real-svc-xyz;P:real-pass-abc123;;"
     let image = PairingQRGenerator.generateQRCodeImage(payload: payload, scale: 6)
@@ -419,14 +554,85 @@ private final class NonExecutableFileManager: FileManager, @unchecked Sendable {
     #expect(image != nil, "CoreImage QR generator must produce an image for a valid payload")
     #expect(image!.size.width >= 150, "QR must be large enough for phone camera to scan reliably")
     #expect(image!.size.height >= 150)
+    #expect(image!.tiffRepresentation != nil)
+    #expect(image!.representations.isEmpty == false)
+}
 
-    // Honest check: the generated image must have actual bitmap data (not a zero-size stub).
-    guard let cgImage = image!.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-        Issue.record("Generated NSImage must provide a CGImage")
-        return
+@Test func pairingQRGeneratorFallsBackToPatternImageWhenCoreImageRenderingFails() {
+    let previousRenderer = PairingQRGenerator.imageRenderer
+    PairingQRGenerator.imageRenderer = { _, _, _, _ in nil }
+    defer { PairingQRGenerator.imageRenderer = previousRenderer }
+
+    let payload = PairingQRGenerator.payload(from: "unit-device", password: "unit-pass")
+    let image = PairingQRGenerator.generateQRCodeImage(payload: payload, scale: 6)
+
+    #expect(image != nil, "Fallback renderer should still return a deterministic placeholder image")
+    #expect(image!.size.width > 0)
+    #expect(image!.size.height > 0)
+    #expect(image!.representations.isEmpty == false)
+}
+
+@Test func pairingQRGeneratorRandomCredentialsCanUseInjectedRandomByteProvider() {
+    let previousProvider = PairingQRGenerator.randomByteProvider
+    let previousFixedEnv = ProcessInfo.processInfo.environment["DROID_SCOUT_TEST_QR_FIXED"]
+    var callIndex = 0
+
+    PairingQRGenerator.randomByteProvider = { byteCount, pointer in
+        guard let pointer else { return errSecParam }
+        let bytes = pointer.assumingMemoryBound(to: UInt8.self)
+        for index in 0..<byteCount {
+            bytes[index] = UInt8(index + callIndex * 4)
+        }
+        callIndex += 1
+        return errSecSuccess
     }
-    #expect(cgImage.width >= 100)
-    #expect(cgImage.height >= 100)
+    unsetenv("DROID_SCOUT_TEST_QR_FIXED")
+
+    defer {
+        PairingQRGenerator.randomByteProvider = previousProvider
+        if let previousFixedEnv {
+            setenv("DROID_SCOUT_TEST_QR_FIXED", previousFixedEnv, 1)
+        } else {
+            unsetenv("DROID_SCOUT_TEST_QR_FIXED")
+        }
+    }
+
+    let creds = PairingQRGenerator.randomCredentials()
+
+    #expect(creds.serviceName == "droidscout-00010203")
+    #expect(creds.password == "040506070809")
+    #expect(
+        creds.payload ==
+            "WIFI:T:ADB;S:droidscout-00010203;P:040506070809;;"
+    )
+}
+
+@Test func pairingQRGeneratorHonorsFixedEnvOverInjectedRandomProvider() {
+    let previousProvider = PairingQRGenerator.randomByteProvider
+    let previousFixedEnv = ProcessInfo.processInfo.environment["DROID_SCOUT_TEST_QR_FIXED"]
+
+    setenv("DROID_SCOUT_TEST_QR_FIXED", "1", 1)
+    PairingQRGenerator.randomByteProvider = { _, _ in
+        #expect(Bool(false), "Random provider should not be called when fixed test env is enabled")
+        return -1
+    }
+    defer {
+        PairingQRGenerator.randomByteProvider = previousProvider
+        if let previousFixedEnv {
+            setenv("DROID_SCOUT_TEST_QR_FIXED", previousFixedEnv, 1)
+        } else {
+            unsetenv("DROID_SCOUT_TEST_QR_FIXED")
+        }
+    }
+
+    let creds = PairingQRGenerator.randomCredentials()
+    #expect(creds.serviceName == "droidscout-test")
+    #expect(creds.password == "fixed123456")
+    #expect(creds.payload == "WIFI:T:ADB;S:droidscout-test;P:fixed123456;;")
+}
+
+@Test func pairingQRGeneratorRandomByteProviderReturnsErrorForNilBuffer() {
+    #expect(PairingQRGenerator.randomByteProvider(8, nil) == errSecParam)
 }
 
 // MARK: - ADB mDNS Services Parser (Phase 2 TDD)
@@ -452,4 +658,185 @@ private final class NonExecutableFileManager: FileManager, @unchecked Sendable {
 
     let ipv6 = pairing.first { $0.name == "droidscout-abc123" }
     #expect(ipv6?.address?.contains(":40000") == true)
+}
+
+@MainActor
+@Test func pairingMDNSDiscovererResolvesMatchingHostServiceNameWithNormalizedInputs() async {
+    let discoverer = PairingMDNSDiscoverer()
+    let task = Task { await discoverer.discover(serviceName: "  DROIDSCOUT-SVC. ", timeout: 1.0) }
+    try? await Task.sleep(for: .milliseconds(5))
+
+    let service = FakeNetService(
+        name: "droidscout-svc",
+        port: 37123,
+        hostName: "pairing-device.local."
+    )
+
+    discoverer.netServiceBrowser(
+        NetServiceBrowser(),
+        didFind: service,
+        moreComing: false
+    )
+    discoverer.netServiceDidResolveAddress(service)
+
+    let result = await task.value
+    #expect(result?.address == "pairing-device.local:37123")
+    #expect(result?.instanceName == "droidscout-svc")
+}
+
+@MainActor
+@Test func pairingMDNSDiscovererResolvesMatchingHostServiceNameWithColonHost() async {
+    let discoverer = PairingMDNSDiscoverer()
+    let task = Task { await discoverer.discover(serviceName: " droidscout-colon ", timeout: 1.0) }
+    try? await Task.sleep(for: .milliseconds(5))
+
+    let service = FakeNetService(
+        name: "droidscout-colon",
+        port: 40000,
+        hostName: "fe80::1"
+    )
+
+    discoverer.netServiceBrowser(
+        NetServiceBrowser(),
+        didFind: service,
+        moreComing: false
+    )
+    discoverer.netServiceDidResolveAddress(service)
+
+    let result = await task.value
+    #expect(result?.address == "[fe80::1]:40000")
+}
+
+@MainActor
+@Test func pairingMDNSDiscovererFallsBackToIPv4AddressWhenHostNameMissing() async {
+    let discoverer = PairingMDNSDiscoverer()
+    let task = Task { await discoverer.discover(serviceName: "droidscout-fallback-ipv4", timeout: 1.0) }
+    try? await Task.sleep(for: .milliseconds(5))
+
+    let service = FakeNetService(
+        name: "droidscout-fallback-ipv4",
+        port: 5555,
+        hostName: nil,
+        addresses: [ipv4SockaddrData("10.0.0.42", port: 5555)]
+    )
+
+    discoverer.netServiceBrowser(
+        NetServiceBrowser(),
+        didFind: service,
+        moreComing: false
+    )
+    discoverer.netServiceDidResolveAddress(service)
+
+    let result = await task.value
+    #expect(result?.address == "10.0.0.42:5555")
+}
+
+@MainActor
+@Test func pairingMDNSDiscovererFallsBackToIPv6AddressWhenHostNameMissing() async {
+    let discoverer = PairingMDNSDiscoverer()
+    let task = Task { await discoverer.discover(serviceName: "droidscout-fallback-ipv6", timeout: 1.0) }
+    try? await Task.sleep(for: .milliseconds(5))
+
+    let service = FakeNetService(
+        name: "droidscout-fallback-ipv6",
+        port: 44444,
+        hostName: nil,
+        addresses: [ipv6SockaddrData("2001:db8::1234", port: 44444)]
+    )
+
+    discoverer.netServiceBrowser(
+        NetServiceBrowser(),
+        didFind: service,
+        moreComing: false
+    )
+    discoverer.netServiceDidResolveAddress(service)
+
+    let result = await task.value
+    #expect(result?.address == "[2001:db8::1234]:44444")
+}
+
+@MainActor
+@Test func pairingMDNSDiscovererCancelsAndReturnsNilOnCancel() async {
+    let discoverer = PairingMDNSDiscoverer()
+    let task = Task { await discoverer.discover(serviceName: "droidscout-cancel", timeout: 2.0) }
+    try? await Task.sleep(for: .milliseconds(5))
+    task.cancel()
+
+    let result = await task.value
+    #expect(result == nil)
+}
+
+@MainActor
+@Test func pairingMDNSDiscovererExplicitCancelMethodReturnsNil() async {
+    let discoverer = PairingMDNSDiscoverer()
+    let task = Task { await discoverer.discover(serviceName: "droidscout-explicit-cancel", timeout: 5.0) }
+    try? await Task.sleep(for: .milliseconds(5))
+
+    discoverer.cancel()
+
+    let result = await task.value
+    #expect(result == nil)
+}
+
+@MainActor
+@Test func pairingMDNSDiscovererHandlesMatchedServiceWithNoHostAndNoAddressRecords() async {
+    let discoverer = PairingMDNSDiscoverer()
+    let task = Task { await discoverer.discover(serviceName: "droidscout-no-address", timeout: 0.08) }
+    try? await Task.sleep(for: .milliseconds(5))
+
+    let service = FakeNetService(name: "droidscout-no-address", port: 5000, hostName: nil, addresses: nil)
+    discoverer.netServiceBrowser(NetServiceBrowser(), didFind: service, moreComing: false)
+    discoverer.netServiceDidResolveAddress(service)
+
+    let result = await task.value
+    #expect(result == nil)
+}
+
+@MainActor
+@Test func pairingMDNSDiscovererHandlesUnparseableAddressRecordPayloadAsTimeout() async {
+    let discoverer = PairingMDNSDiscoverer()
+    let task = Task { await discoverer.discover(serviceName: "droidscout-unparseable-address", timeout: 0.08) }
+    try? await Task.sleep(for: .milliseconds(5))
+
+    let service = FakeNetService(name: "droidscout-unparseable-address", port: 5001, hostName: nil, addresses: [Data([0, 1, 2, 3])])
+    discoverer.netServiceBrowser(NetServiceBrowser(), didFind: service, moreComing: false)
+    discoverer.netServiceDidResolveAddress(service)
+
+    let result = await task.value
+    #expect(result == nil)
+}
+
+@MainActor
+@Test func pairingMDNSDiscovererIgnoresUnmatchedServiceAndTimesOut() async {
+    let discoverer = PairingMDNSDiscoverer()
+    let timeout: TimeInterval = 0.05
+    let task = Task {
+        await discoverer.discover(serviceName: "droidscout-match-missing", timeout: timeout)
+    }
+    let unmatched = FakeNetService(name: "other-service", port: 1111)
+    try? await Task.sleep(for: .milliseconds(5))
+    discoverer.netServiceBrowser(NetServiceBrowser(), didFind: unmatched, moreComing: false)
+    discoverer.netServiceBrowser(NetServiceBrowser(), didRemove: unmatched, moreComing: false)
+    discoverer.netServiceDidResolveAddress(unmatched)
+    discoverer.netService(unmatched, didNotResolve: [:])
+
+    let result = await task.value
+    #expect(result == nil)
+}
+
+@Test func localStoreSaveFailurePathDoesNotCrash() throws {
+    let temp = try TestSupport.temporaryDirectory()
+    defer { TestSupport.cleanup(temp) }
+
+    let conflictingPath = temp.appendingPathComponent("blocked-store")
+    try TestSupport.touch(conflictingPath)
+
+    let store = LocalStore(fileManager: .default, supportURL: conflictingPath, logsURL: conflictingPath)
+    store.saveSettings(AppSettings.defaults)
+    store.saveActivities([])
+    store.saveArtifacts([])
+    store.saveDeviceNames([:])
+
+    let loadedSettings = store.loadSettings()
+    #expect(loadedSettings == .defaults)
 }

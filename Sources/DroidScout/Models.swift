@@ -249,7 +249,7 @@ struct ArtifactRecord: Identifiable, Codable, Hashable, Sendable {
         }
         details.append(source.displayName)
 
-        return details.isEmpty ? displayName : "\(displayName) - \(details.joined(separator: ", "))"
+        return "\(displayName) - \(details.joined(separator: ", "))"
     }
 }
 

@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import Testing
 @testable import DroidScout
 
@@ -107,6 +108,63 @@ import Testing
     #expect(!aab.isReinstallable)
 }
 
+@Test func artifactIndexerParsesAPKMetadataFromAaptResultWhenAvailableOnPath() async throws {
+    let root = try TestSupport.temporaryDirectory()
+    defer { TestSupport.cleanup(root) }
+
+    let apk = root.appendingPathComponent("app/build/outputs/apk/debug/app-debug.apk")
+    try TestSupport.touch(apk)
+
+    let tools = root.appendingPathComponent("tools", isDirectory: true)
+    try FileManager.default.createDirectory(at: tools, withIntermediateDirectories: true)
+    let aapt = tools.appendingPathComponent("aapt")
+    try TestSupport.executableScript(aapt, body: """
+    if [ "$1" = "dump" ] && [ "$2" = "badging" ]; then
+      echo "package: name='com.example.metadata' versionCode='101' versionName='3.0.1'"
+      echo "application-label:'Metadata App'"
+      exit 0
+    fi
+    exit 1
+    """)
+
+    let previousPath = ProcessInfo.processInfo.environment["PATH"]
+    let previousAndroidHome = ProcessInfo.processInfo.environment["ANDROID_HOME"]
+    let previousAndroidSDKRoot = ProcessInfo.processInfo.environment["ANDROID_SDK_ROOT"]
+
+    setenv("PATH", tools.pathString, 1)
+    unsetenv("ANDROID_HOME")
+    unsetenv("ANDROID_SDK_ROOT")
+    defer {
+        if let previousPath = previousPath {
+            setenv("PATH", previousPath, 1)
+        } else {
+            unsetenv("PATH")
+        }
+        if let previousAndroidHome = previousAndroidHome {
+            setenv("ANDROID_HOME", previousAndroidHome, 1)
+        } else {
+            unsetenv("ANDROID_HOME")
+        }
+        if let previousAndroidSDKRoot = previousAndroidSDKRoot {
+            setenv("ANDROID_SDK_ROOT", previousAndroidSDKRoot, 1)
+        } else {
+            unsetenv("ANDROID_SDK_ROOT")
+        }
+    }
+
+    let records = await ArtifactIndexer().indexProjects(paths: [root.pathString])
+    #expect(records.count == 1)
+    guard let metadataRecord = records.first(where: { $0.variant == "debug" && $0.kind == .apk }) else {
+        Issue.record("Expected an APK record with parsed metadata")
+        return
+    }
+
+    #expect(metadataRecord.packageName == "com.example.metadata")
+    #expect(metadataRecord.versionName == "3.0.1")
+    #expect(metadataRecord.versionCode == "101")
+    #expect(metadataRecord.evidence?.contains("Metadata parsed from APK.") == true)
+}
+
 @Test func artifactIndexerHandlesMissingRootsInvalidMetadataAndVariantlessAPKDirectories() async throws {
     let root = try TestSupport.temporaryDirectory()
     defer { TestSupport.cleanup(root) }
@@ -126,6 +184,21 @@ import Testing
     #expect(records[0].variant == nil)
     #expect(records[0].packageName == nil)
     #expect(records[0].lastSeen == Date(timeIntervalSince1970: 500))
+}
+
+@Test func artifactIndexerHandlesUnreadableOutputMetadataGracefully() async throws {
+    let root = try TestSupport.temporaryDirectory()
+    defer { TestSupport.cleanup(root) }
+
+    let metadataPath = root.appendingPathComponent("app/build/outputs/apk/debug/output-metadata.json")
+    try FileManager.default.createDirectory(at: metadataPath, withIntermediateDirectories: true)
+    let apk = root.appendingPathComponent("app/build/outputs/apk/debug/app.apk")
+    try TestSupport.touch(apk)
+
+    let records = await ArtifactIndexer().indexProjects(paths: [root.pathString])
+    #expect(records.count == 1)
+    #expect(records[0].kind == .apk)
+    #expect(records[0].packageName == nil)
 }
 
 @Test func packageStatePollerUsesRealADBAndSkipsOfflineDevices() async throws {
