@@ -434,10 +434,10 @@ private final class NonExecutableFileManager: FileManager, @unchecked Sendable {
 @Test func adbMdnsParserExtractsPairingServicesFromRealAdbOutput() {
     let output = """
     List of discovered mdns services
-    droidscout-test-001 _adb-tls-pairing._tcp 192.168.1.42:37123
-    studio-g@abc123 _adb-tls-pairing._tcp 10.0.0.5:12345
-    other-device _adb-tls-connect._tcp 192.168.1.99:5555
-    droidscout-abc123 _adb-tls-pairing._tcp [fe80::1]:40000
+    droidscout-test-001\t_adb-tls-pairing._tcp\t192.168.1.42:37123
+    studio-g@abc123\t_adb-tls-pairing._tcp\t10.0.0.5:12345
+    other-device\t_adb-tls-connect._tcp\t192.168.1.99:5555
+    droidscout-abc123\t_adb-tls-pairing._tcp\t[fe80::1]:40000
     malformed line here
     """
 

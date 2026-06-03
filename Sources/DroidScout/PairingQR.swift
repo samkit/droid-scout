@@ -15,8 +15,9 @@ public struct QRPairingCredentials: Equatable, Sendable {
 /// Payload format (exactly as specified by Android):
 ///   WIFI:T:ADB;S:<service-name>;P:<password>;;
 ///
-/// The service name is used by the phone to advertise `_adb-tls-pairing._tcp`.
-/// The password is fed to `adb pair <addr> <password>`.
+/// The service name is used by the phone to advertise `_adb-tls-pairing._tcp` (via Bonjour/NSD).
+/// The password is fed to `adb pair <addr> <password>`. (We discover the advertisement natively
+/// on macOS and use adb only for the actual pair step + diagnostics.)
 ///
 /// A test hook (`DROID_SCOUT_TEST_QR_FIXED=1` in the environment) returns deterministic
 /// values so integration tests can script exact `adb mdns services` + pair responses.
