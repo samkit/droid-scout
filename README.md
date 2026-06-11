@@ -31,11 +31,17 @@ It uses your installed Android Platform Tools. No bundled ADB, no account, no te
 ### Homebrew Cask
 
 #### Personal Tap (Unsigned Open-Source Release)
-To install from the personal Homebrew Tap and bypass macOS Gatekeeper quarantine (since this is a free, open-source utility without a paid Apple signature):
+Install from the personal Homebrew Tap:
 
 ```sh
 brew tap samkit/tap
-HOMEBREW_CASK_OPTS="--no-quarantine" brew install --cask samkit/tap/droid-scout
+brew install --cask samkit/tap/droid-scout
+```
+
+If macOS blocks the app due to Gatekeeper (unsigned open-source release), remove the quarantine attribute:
+
+```sh
+xattr -d com.apple.quarantine /Applications/Droid Scout.app
 ```
 
 #### Public Cask (When Published)
