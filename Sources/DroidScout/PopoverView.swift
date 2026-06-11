@@ -309,7 +309,7 @@ public struct DroidScoutPopoverView: View {
                     systemImage: "clock.arrow.circlepath",
                     items: model.recentArtifacts.prefix(8).map { artifact in
                         ActionPopupItem(
-                            title: artifact.reinstallMenuTitle,
+                            title: artifact.reinstallMenuTitle(among: model.recentArtifacts),
                             action: { model.reinstallRecent(artifact) },
                             isEnabled: true
                         )

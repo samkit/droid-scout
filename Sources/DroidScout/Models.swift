@@ -210,6 +210,7 @@ struct ArtifactRecord: Identifiable, Codable, Hashable, Sendable {
     var versionName: String?
     var versionCode: String?
     var variant: String?
+    var projectPath: String? = nil
     var kind: ArtifactKind
     var lastSeen: Date
     var source: ArtifactSource
@@ -242,6 +243,7 @@ struct ArtifactRecord: Identifiable, Codable, Hashable, Sendable {
         return parts.isEmpty ? kind.displayName : parts.joined(separator: " ")
     }
 
+    /// Basic menu title (no project disambiguation). Used for tests and as the foundation for the contextual version.
     var reinstallMenuTitle: String {
         var details: [String] = []
         if let variant, !variant.isEmpty {
@@ -250,6 +252,98 @@ struct ArtifactRecord: Identifiable, Codable, Hashable, Sendable {
         details.append(source.displayName)
 
         return "\(displayName) - \(details.joined(separator: ", "))"
+    }
+
+    /// Returns a reinstall menu title. When multiple artifacts in `candidates` share the same
+    /// artifact name (i.e. same `displayName` and `variant`), this will compute a minimal
+    /// distinguishing path fragment based on the *first differing path component(s)* after the
+    /// common prefix of those projects' `projectPath` values. The smart fragment is only
+    /// inserted for colliding artifacts, and only using project paths when available.
+    func reinstallMenuTitle(among candidates: [ArtifactRecord]) -> String {
+        let baseDisplay = displayName
+        let baseVariant = variant ?? ""
+        let collisionKey = "\(baseDisplay)|\(baseVariant)"
+
+        let colliding = candidates.filter { other in
+            "\(other.displayName)|\(other.variant ?? "")" == collisionKey
+        }
+
+        var details: [String] = []
+        if !baseVariant.isEmpty {
+            details.append(baseVariant)
+        }
+
+        if colliding.count > 1 {
+            // Only disambiguate when there are actual duplicates on artifact name.
+            let projectPaths = colliding.compactMap { $0.projectPath?.isEmpty == false ? $0.projectPath : nil }
+            if projectPaths.count > 1, let myProject = projectPath, !myProject.isEmpty {
+                if let diff = Self.distinguishingPathFragment(allPaths: projectPaths, for: myProject) {
+                    details.append(diff)
+                } else if let hint = projectHint {
+                    details.append(hint)
+                }
+            } else if let hint = projectHint {
+                // Fallback for mixed (some with projectPath, some without) or single projectPath in group
+                details.append(hint)
+            }
+        }
+        // Note: when count <= 1 (no name collision), we intentionally omit any project hint to keep titles short.
+
+        details.append(source.displayName)
+
+        return "\(baseDisplay) - \(details.joined(separator: ", "))"
+    }
+
+    var projectHint: String? {
+        guard let projectPath, !projectPath.isEmpty else { return nil }
+        let name = URL(fileURLWithPath: projectPath).lastPathComponent
+        return name.isEmpty ? nil : name
+    }
+
+    private static func distinguishingPathFragment(allPaths: [String], for thisPath: String) -> String? {
+        guard allPaths.count > 1, !thisPath.isEmpty else { return nil }
+
+        func components(_ p: String) -> [String] {
+            let expanded = (p as NSString).expandingTildeInPath
+            return URL(fileURLWithPath: expanded).pathComponents.filter { $0 != "/" && !$0.isEmpty }
+        }
+
+        let thisComps = components(thisPath)
+        guard !thisComps.isEmpty else { return nil }
+
+        // Longest common prefix length across the whole colliding set
+        var lcpLen = thisComps.count
+        for p in allPaths where p != thisPath {
+            let otherComps = components(p)
+            var i = 0
+            let maxI = min(lcpLen, otherComps.count)
+            while i < maxI && thisComps[i] == otherComps[i] {
+                i += 1
+            }
+            lcpLen = min(lcpLen, i)
+        }
+
+        let tail = Array(thisComps.dropFirst(lcpLen))
+        if tail.isEmpty {
+            // Paths were identical or this one is not longer; fall back to last 1-2 components
+            let fallback = thisComps.suffix(2)
+            return fallback.joined(separator: "/")
+        }
+
+        // Take the shortest prefix of the tail that makes this entry unique among the group
+        for k in 1...tail.count {
+            let candidate = tail.prefix(k).joined(separator: "/")
+            let hasConflict = allPaths.contains { other in
+                guard other != thisPath else { return false }
+                let oTail = components(other).dropFirst(lcpLen)
+                return oTail.prefix(k).joined(separator: "/") == candidate
+            }
+            if !hasConflict {
+                return candidate
+            }
+        }
+
+        return tail.joined(separator: "/")
     }
 }
 

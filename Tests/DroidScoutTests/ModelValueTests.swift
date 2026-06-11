@@ -92,6 +92,7 @@ import Testing
         versionName: "2.1",
         versionCode: "42",
         variant: "debug",
+        projectPath: "/Users/sam/code/myapp",
         kind: .apk,
         source: .indexedProject
     )
@@ -99,7 +100,43 @@ import Testing
     #expect(apk.isReinstallable)
     #expect(apk.displayName == "app-debug.apk")
     #expect(apk.versionSummary == "2.1 (42) debug")
+    #expect(apk.projectHint == "myapp")
+    // Bare title has no project hint (hints only appear for name collisions via the contextual overload)
     #expect(apk.reinstallMenuTitle == "app-debug.apk - debug, Project scan")
+
+    // Non-colliding: still no project fragment even with context list
+    #expect(apk.reinstallMenuTitle(among: [apk]) == "app-debug.apk - debug, Project scan")
+
+    // Colliding on artifact name (same displayName + variant): smart first-diff fragment appears
+    let apkSameNameDifferentProject = TestSupport.artifact(
+        paths: ["/tmp/build/app-debug.apk"],
+        packageName: nil,
+        versionName: "2.1",
+        versionCode: "42",
+        variant: "debug",
+        projectPath: "/Users/sam/code/client-app",
+        kind: .apk,
+        source: .indexedProject
+    )
+    let collidingList = [apk, apkSameNameDifferentProject]
+    #expect(apk.reinstallMenuTitle(among: collidingList) == "app-debug.apk - debug, myapp, Project scan")
+
+    // Demonstrates minimal unique tail when an early distractor shortens LCP and another shares the initial tail segment(s)
+    // lcp overall=3 (u/s/wt), this tail starts [exp1, client, app], "exp1" and "exp1/client" are shared with matcher, so takes 3
+    let deepThis = TestSupport.artifact(
+        paths: ["/tmp/x.apk"], packageName: "com.foo", variant: "release",
+        projectPath: "/Users/sam/wt/exp1/client/app", source: .indexedProject
+    )
+    let deepMatcher = TestSupport.artifact(
+        paths: ["/tmp/x.apk"], packageName: "com.foo", variant: "release",
+        projectPath: "/Users/sam/wt/exp1/client/app-debug", source: .indexedProject
+    )
+    let deepDistractor = TestSupport.artifact(
+        paths: ["/tmp/x.apk"], packageName: "com.foo", variant: "release",
+        projectPath: "/Users/sam/wt/exp2/other/app", source: .indexedProject
+    )
+    let deepColliding = [deepThis, deepMatcher, deepDistractor]
+    #expect(deepThis.reinstallMenuTitle(among: deepColliding) == "com.foo - release, exp1/client/app, Project scan")
 
     let packageOnly = TestSupport.artifact(paths: [], packageName: "com.example", versionName: nil, versionCode: nil, variant: nil)
     #expect(packageOnly.displayName == "com.example")

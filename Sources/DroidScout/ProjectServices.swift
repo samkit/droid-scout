@@ -66,6 +66,7 @@ final class ArtifactIndexer: @unchecked Sendable {
                     element: elements.first,
                     fallbackPackage: packageName,
                     variant: variantName(from: directory, rootURL: rootURL),
+                    projectPath: root,
                     fileManager: fileManager
                 ))
             } else {
@@ -79,6 +80,7 @@ final class ArtifactIndexer: @unchecked Sendable {
                         element: element,
                         fallbackPackage: metadata?.applicationId,
                         variant: variantName(from: directory, rootURL: rootURL),
+                        projectPath: root,
                         fileManager: fileManager
                     ))
                 }
@@ -94,6 +96,7 @@ final class ArtifactIndexer: @unchecked Sendable {
                 element: nil,
                 fallbackPackage: nil,
                 variant: variantName(from: aabURL.deletingLastPathComponent(), rootURL: rootURL),
+                projectPath: root,
                 fileManager: fileManager
             ))
         }
@@ -109,6 +112,7 @@ final class ArtifactIndexer: @unchecked Sendable {
         element: OutputMetadata.Element?,
         fallbackPackage: String?,
         variant: String?,
+        projectPath: String?,
         fileManager: FileManager
     ) -> ArtifactRecord {
         let newestDate = paths
@@ -124,6 +128,7 @@ final class ArtifactIndexer: @unchecked Sendable {
             versionName: element?.versionName ?? apkMetadata?.versionName,
             versionCode: element?.versionCode.map(String.init) ?? apkMetadata?.versionCode,
             variant: variant,
+            projectPath: projectPath,
             kind: kind,
             lastSeen: newestDate,
             source: source,

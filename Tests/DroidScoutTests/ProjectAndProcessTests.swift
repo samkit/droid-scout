@@ -94,6 +94,7 @@ import Testing
     #expect(split.versionCode == "12")
     #expect(split.variant == "debug")
     #expect(split.source == .indexedProject)
+    #expect(split.projectPath == root.pathString)
     #expect(split.lastSeen == Date(timeIntervalSince1970: 200))
     #expect(split.evidence?.contains("/build/outputs/apk/debug") == true)
 
@@ -103,6 +104,7 @@ import Testing
     }
     #expect(aab.paths.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().pathString } == [releaseBundle.resolvingSymlinksInPath().pathString])
     #expect(aab.variant == "release")
+    #expect(aab.projectPath == root.pathString)
     #expect(aab.packageName == nil)
     #expect(aab.versionSummary == "release")
     #expect(!aab.isReinstallable)
@@ -182,6 +184,7 @@ import Testing
     #expect(records[0].kind == .apk)
     #expect(records[0].paths.map { URL(fileURLWithPath: $0).lastPathComponent } == ["app.apk"])
     #expect(records[0].variant == nil)
+    #expect(records[0].projectPath == root.pathString)
     #expect(records[0].packageName == nil)
     #expect(records[0].lastSeen == Date(timeIntervalSince1970: 500))
 }
