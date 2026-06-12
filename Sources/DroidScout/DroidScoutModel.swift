@@ -631,12 +631,32 @@ public final class DroidScoutModel: ObservableObject {
 
     func removeProjectFolder(_ path: String) {
         settings.watchedProjectPaths.removeAll { $0 == path }
+        // Immediately remove artifacts (whether still .indexedProject or promoted .droidScout/.external recents)
+        // that are associated with the removed project's path. This ensures the recents list drops
+        // the project's build outputs right away.
+        let before = artifacts.count
+        artifacts = artifacts.filter { artifact in
+            if let pp = artifact.projectPath, pp == path {
+                return false
+            }
+            return true
+        }
+        if artifacts.count != before {
+            store.saveArtifacts(artifacts)
+        }
         Task { await scanProjects() }
     }
 
     func scanProjects() async {
         let indexed = await artifactIndexer.indexProjects(paths: settings.watchedProjectPaths)
-        let persistedRecents = artifacts.filter { $0.source == .droidScout || $0.source == .external }
+        let watchedPaths = Set(settings.watchedProjectPaths)
+        let persistedRecents = artifacts.filter { artifact in
+            guard artifact.source == .droidScout || artifact.source == .external else { return false }
+            if let pp = artifact.projectPath, !pp.isEmpty {
+                return watchedPaths.contains(pp)
+            }
+            return true
+        }
         artifacts = mergeArtifacts(persistedRecents + indexed)
         store.saveArtifacts(artifacts)
         recordActivity(

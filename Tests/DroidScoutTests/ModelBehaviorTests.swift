@@ -163,6 +163,9 @@ import Testing
 
     model.removeProjectFolder(project.pathString)
     #expect(model.settings.watchedProjectPaths.isEmpty)
+    // Artifacts from the removed project must be pruned from recents (both in-memory and persisted)
+    #expect(!model.artifacts.contains { $0.packageName == "com.scanned" })
+    #expect(!store.loadArtifacts().contains { $0.packageName == "com.scanned" })
 }
 
 @MainActor
