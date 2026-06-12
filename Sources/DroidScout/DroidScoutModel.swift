@@ -700,7 +700,26 @@ public final class DroidScoutModel: ObservableObject {
 
     func reinstallRecent(_ artifact: ArtifactRecord) {
         guard artifact.isReinstallable else {
-            recordActivity(kind: .install, title: "Artifact not installable", detail: "\(artifact.displayName) cannot be installed by Droid Scout.", success: false)
+            reportPreflightInstallFailure(
+                artifact: artifact,
+                title: "Artifact not installable",
+                detail: "\(artifact.displayName) cannot be installed by Droid Scout."
+            )
+            return
+        }
+
+        // Check disk existence synchronously for the Reinstall Recent menu path. This ensures
+        // immediate proper error reporting (InstallResult + activity) without scheduling an
+        // async Task when the user picks a stale artifact whose build outputs have been cleaned
+        // or deleted. The check inside install() remains for other call sites.
+        let missingPaths = artifact.paths.filter { !FileManager.default.fileExists(atPath: $0) }
+        if !missingPaths.isEmpty {
+            let missingNames = missingPaths.map { URL(fileURLWithPath: $0).lastPathComponent }.joined(separator: ", ")
+            reportPreflightInstallFailure(
+                artifact: artifact,
+                title: "Artifact unavailable",
+                detail: "Missing file\(missingPaths.count == 1 ? "" : "s"): \(missingNames)"
+            )
             return
         }
 
@@ -1060,21 +1079,38 @@ public final class DroidScoutModel: ObservableObject {
 
     func install(artifact: ArtifactRecord, devices targetDevices: [AndroidDevice]) async {
         guard let installCoordinator else {
-            recordActivity(kind: .install, title: "Install unavailable", detail: "ADB is not currently available.", success: false)
+            reportPreflightInstallFailure(
+                artifact: artifact,
+                title: "Install unavailable",
+                detail: "ADB is not currently available."
+            )
             return
         }
         guard artifact.isReinstallable else {
-            recordActivity(kind: .install, title: "Artifact not installable", detail: "\(artifact.displayName) cannot be installed by Droid Scout.", success: false)
+            reportPreflightInstallFailure(
+                artifact: artifact,
+                title: "Artifact not installable",
+                detail: "\(artifact.displayName) cannot be installed by Droid Scout."
+            )
             return
         }
         let missingPaths = artifact.paths.filter { !FileManager.default.fileExists(atPath: $0) }
         guard missingPaths.isEmpty else {
             let missingNames = missingPaths.map { URL(fileURLWithPath: $0).lastPathComponent }.joined(separator: ", ")
-            recordActivity(kind: .install, title: "Artifact unavailable", detail: "Missing file\(missingPaths.count == 1 ? "" : "s"): \(missingNames)", success: false)
+            reportPreflightInstallFailure(
+                artifact: artifact,
+                title: "Artifact unavailable",
+                detail: "Missing file\(missingPaths.count == 1 ? "" : "s"): \(missingNames)"
+            )
             return
         }
         guard !targetDevices.isEmpty else {
-            recordActivity(kind: .install, title: "No online devices selected", detail: "Select one or more online devices before installing.", success: false)
+            reportPreflightInstallFailure(
+                artifact: artifact,
+                title: "No online devices selected",
+                detail: "Select one or more online devices before installing.",
+                deviceSerialForResult: "<none>"
+            )
             return
         }
 
@@ -1156,6 +1192,34 @@ public final class DroidScoutModel: ObservableObject {
             }
         }
         return merged.values.sorted { $0.lastSeen > $1.lastSeen }
+    }
+
+    /// Reports a pre-flight failure for an install/reinstall action by recording it in activity
+    /// history *and* synthesizing a terminal .failed InstallResult. This ensures the error is
+    /// prominently visible to the user via the "Install Progress" button + pane (with red
+    /// status, message in stderr, and copy support), satisfying the requirement that missing
+    /// artifacts etc. must surface a proper error instead of a silent no-op.
+    private func reportPreflightInstallFailure(
+        artifact: ArtifactRecord,
+        title: String,
+        detail: String,
+        deviceSerialForResult: String = ""
+    ) {
+        recordActivity(kind: .install, title: title, detail: detail, success: false)
+
+        let failure = InstallResult(
+            id: UUID(),
+            deviceSerial: deviceSerialForResult,
+            artifactID: artifact.id,
+            artifactName: artifact.displayName,
+            artifactPath: artifact.primaryPath,
+            status: .failed,
+            stdout: "",
+            stderr: detail,
+            startedAt: Date(),
+            completedAt: Date()
+        )
+        upsertInstallResult(failure)
     }
 
     func applyDeviceSnapshot(_ snapshot: [AndroidDevice]) {

@@ -398,7 +398,10 @@ public struct DroidScoutInstallProgressView: View {
     }
 
     private func deviceName(for serial: String) -> String {
-        model.devices.first(where: { $0.serial == serial })?.friendlyName ?? serial
+        if serial.isEmpty || serial == "<none>" {
+            return "No devices available"
+        }
+        return model.devices.first(where: { $0.serial == serial })?.friendlyName ?? serial
     }
 }
 

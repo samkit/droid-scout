@@ -178,6 +178,17 @@ public struct DroidScoutPopoverView: View {
         let isEnabled: Bool
     }
 
+    /// Box carried in NSMenuItem.representedObject so that the action for a specific
+    /// choice is attached to the menu item itself. This makes selection robust against
+    /// concurrent/ interleaving calls to updateNSView (which rebuilds parent.items and
+    /// the menu) while the NSPopUpButton's menu is presented to the user.
+    private final class ActionPayload: NSObject {
+        let action: () -> Void
+        init(action: @escaping () -> Void) {
+            self.action = action
+        }
+    }
+
     private struct ActionPopupButton: NSViewRepresentable {
         let heading: String
         let systemImage: String
@@ -236,6 +247,7 @@ public struct DroidScoutPopoverView: View {
                     )
                     menuItem.isEnabled = isEnabled && item.isEnabled
                     menuItem.tag = index
+                    menuItem.representedObject = ActionPayload(action: item.action)
                     button.menu?.addItem(menuItem)
                 }
             } else {
@@ -264,11 +276,26 @@ public struct DroidScoutPopoverView: View {
 
             @MainActor
             @objc func itemSelected(_ sender: NSPopUpButton) {
-                let selectedIndex = sender.indexOfSelectedItem - 1
                 guard parent.isEnabled else {
                     sender.selectItem(at: 0)
                     return
                 }
+
+                // Prefer the action payload attached directly to the selected NSMenuItem.
+                // This survives updateNSView tearing down/rebuilding the menu + parent.items
+                // while the popup menu is open (common due to package polling, device
+                // updates, artifact lastSeen bumps etc.). Using the concrete menu item's
+                // representedObject guarantees we invoke the closure that was live when
+                // that particular row was presented to the user.
+                if let chosen = sender.selectedItem ?? (sender.indexOfSelectedItem >= 0 ? sender.item(at: sender.indexOfSelectedItem) : nil),
+                   let payload = chosen.representedObject as? ActionPayload {
+                    payload.action()
+                    sender.selectItem(at: 0)
+                    return
+                }
+
+                // Fallback for heading/empty items or any legacy case: original index math.
+                let selectedIndex = sender.indexOfSelectedItem - 1
                 guard selectedIndex >= 0, selectedIndex < parent.items.count else {
                     sender.selectItem(at: 0)
                     return
@@ -308,7 +335,7 @@ public struct DroidScoutPopoverView: View {
                     heading: "Reinstall Recent...",
                     systemImage: "clock.arrow.circlepath",
                     items: model.recentArtifacts.prefix(8).map { artifact in
-                        ActionPopupItem(
+                        return ActionPopupItem(
                             title: artifact.reinstallMenuTitle(among: model.recentArtifacts),
                             action: { model.reinstallRecent(artifact) },
                             isEnabled: true

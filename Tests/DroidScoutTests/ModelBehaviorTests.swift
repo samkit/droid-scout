@@ -307,6 +307,11 @@ import Testing
     let aab = TestSupport.artifact(paths: ["/tmp/app.aab"], kind: .aab)
     model.reinstallRecent(aab)
     #expect(model.activities.first?.title == "Artifact not installable")
+    // Proper error must surface via installResults for visibility in Install Progress UI (not just buried activity)
+    #expect(model.installResults.contains { result in
+        result.status == .failed &&
+        (result.stderr.contains("cannot be installed") || result.artifactName == "com.example.app")
+    })
 
     let stopped = TestSupport.device(serial: "avd:Pixel", state: .stopped, friendlyName: "Pixel", avdName: "Pixel")
     model.startEmulator(device: stopped)
@@ -314,6 +319,14 @@ import Testing
 
     model.showHiddenDevices()
     #expect(model.activities.first?.title == "Emulator start failed")
+
+    // Direct reinstallRecent on a missing-on-disk artifact (the user flow: pick from menu -> nothing visible before)
+    let missingForReinstall = TestSupport.artifact(paths: ["/tmp/this-definitely-does-not-exist-\(UUID().uuidString).apk"])
+    model.reinstallRecent(missingForReinstall)
+    #expect(model.activities.first?.title == "Artifact unavailable")
+    #expect(model.installResults.contains { result in
+        result.status == .failed && result.stderr.contains("Missing file")
+    })
 
     model.copySerial(TestSupport.device(serial: "COPY-ME", friendlyName: "Copy Phone"))
     #expect(model.activities.first?.title == "Serial copied")
@@ -829,12 +842,19 @@ import Testing
 
     await model.install(artifact: installable, devices: [TestSupport.device(serial: "USB1")])
     #expect(model.activities.first?.title == "Artifact unavailable")
+    // Must produce a visible failed InstallResult (with error detail in stderr) so user sees proper error in Install Progress
+    #expect(model.installResults.contains { result in
+        result.status == .failed && (result.stderr.contains("Missing file") || result.stderr.contains("unavailable"))
+    })
 
     let apk = root.appendingPathComponent("app.apk")
     try TestSupport.touch(apk)
     let artifact = TestSupport.artifact(paths: [apk.pathString])
     await model.install(artifact: artifact, devices: [])
     #expect(model.activities.first?.title == "No online devices selected")
+    #expect(model.installResults.contains { result in
+        result.status == .failed && (result.stderr.contains("No online devices") || result.stderr.contains("devices before installing"))
+    })
 
     model.settings.notificationMode = .full
     await model.install(artifact: artifact, devices: [TestSupport.device(serial: "fail-device")])
